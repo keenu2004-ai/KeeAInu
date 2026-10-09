@@ -1,0 +1,34 @@
+{
+  "corpus_name": "KeeAInu Synthetic Test Corpus",
+  "version": "1.0.0",
+  "is_synthetic": true,
+  "items": [
+    {
+      "id": "synthetic_still_grid",
+      "filename": "synthetic_still_grid.png",
+      "sha256": "46c93235308d0fd17e6b780a03aa42f457a5f7e9149279acd77910ecdf6005b8",
+      "type": "image/png",
+      "width": 320,
+      "height": 240
+    },
+    {
+      "id": "synthetic_still_pit",
+      "filename": "synthetic_still_pit.jpg",
+      "sha256": "dd535e80ece671673608cf3e8ef9457dac8f48ba3dd42c7e16c813db03eb3c22",
+      "type": "image/jpeg",
+      "width": 320,
+      "height": 240
+    },
+    {
+      "id": "synthetic_test_video",
+      "filename": "synthetic_test_video.mp4",
+      "sha256": "500d7ef0455cc282590d37149a108a0d0a17757e5a142203915c894dd7e19790",
+      "type": "video/mp4",
+      "width": 320,
+      "height": 240,
+      "fps": 30.0,
+      "frame_count": 30,
+      "annotations_file": "synthetic_test_video_annotations.json"
+    }
+  ]
+}

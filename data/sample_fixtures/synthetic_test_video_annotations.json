@@ -1,0 +1,212 @@
+{
+  "schema_version": "1.0.0",
+  "dataset_id": "dataset_synthetic_test_corpus_v1",
+  "media_id": "synthetic_test_video",
+  "media_sha256": "500d7ef0455cc282590d37149a108a0d0a17757e5a142203915c894dd7e19790",
+  "media_filename": "synthetic_test_video.mp4",
+  "image_width": 320,
+  "image_height": 240,
+  "provenance": "SYNTHETIC_GENERATED",
+  "is_synthetic": true,
+  "created_at": "2026-10-09T05:38:10.460568Z",
+  "annotations": [
+    {
+      "annotation_id": "ann_synth_f10",
+      "frame_index": 10,
+      "timestamp_ms": 333.33,
+      "defect_class": "TEST_PATTERN_CRACK_SYNTHETIC",
+      "bbox": {
+        "x_min": 0.3125,
+        "y_min": 0.3333,
+        "x_max": 0.5469,
+        "y_max": 0.5
+      },
+      "polygon_mask": null,
+      "inspector_notes": "Controlled synthetic test crack pattern for pipeline verification",
+      "metadata": {
+        "synthetic_frame": true,
+        "frame_index": 10
+      }
+    },
+    {
+      "annotation_id": "ann_synth_f11",
+      "frame_index": 11,
+      "timestamp_ms": 366.67,
+      "defect_class": "TEST_PATTERN_CRACK_SYNTHETIC",
+      "bbox": {
+        "x_min": 0.3187,
+        "y_min": 0.3333,
+        "x_max": 0.5531,
+        "y_max": 0.5
+      },
+      "polygon_mask": null,
+      "inspector_notes": "Controlled synthetic test crack pattern for pipeline verification",
+      "metadata": {
+        "synthetic_frame": true,
+        "frame_index": 11
+      }
+    },
+    {
+      "annotation_id": "ann_synth_f12",
+      "frame_index": 12,
+      "timestamp_ms": 400.0,
+      "defect_class": "TEST_PATTERN_CRACK_SYNTHETIC",
+      "bbox": {
+        "x_min": 0.325,
+        "y_min": 0.3333,
+        "x_max": 0.5594,
+        "y_max": 0.5
+      },
+      "polygon_mask": null,
+      "inspector_notes": "Controlled synthetic test crack pattern for pipeline verification",
+      "metadata": {
+        "synthetic_frame": true,
+        "frame_index": 12
+      }
+    },
+    {
+      "annotation_id": "ann_synth_f13",
+      "frame_index": 13,
+      "timestamp_ms": 433.33,
+      "defect_class": "TEST_PATTERN_CRACK_SYNTHETIC",
+      "bbox": {
+        "x_min": 0.3312,
+        "y_min": 0.3333,
+        "x_max": 0.5656,
+        "y_max": 0.5
+      },
+      "polygon_mask": null,
+      "inspector_notes": "Controlled synthetic test crack pattern for pipeline verification",
+      "metadata": {
+        "synthetic_frame": true,
+        "frame_index": 13
+      }
+    },
+    {
+      "annotation_id": "ann_synth_f14",
+      "frame_index": 14,
+      "timestamp_ms": 466.67,
+      "defect_class": "TEST_PATTERN_CRACK_SYNTHETIC",
+      "bbox": {
+        "x_min": 0.3375,
+        "y_min": 0.3333,
+        "x_max": 0.5719,
+        "y_max": 0.5
+      },
+      "polygon_mask": null,
+      "inspector_notes": "Controlled synthetic test crack pattern for pipeline verification",
+      "metadata": {
+        "synthetic_frame": true,
+        "frame_index": 14
+      }
+    },
+    {
+      "annotation_id": "ann_synth_f15",
+      "frame_index": 15,
+      "timestamp_ms": 500.0,
+      "defect_class": "TEST_PATTERN_CRACK_SYNTHETIC",
+      "bbox": {
+        "x_min": 0.3438,
+        "y_min": 0.3333,
+        "x_max": 0.5781,
+        "y_max": 0.5
+      },
+      "polygon_mask": null,
+      "inspector_notes": "Controlled synthetic test crack pattern for pipeline verification",
+      "metadata": {
+        "synthetic_frame": true,
+        "frame_index": 15
+      }
+    },
+    {
+      "annotation_id": "ann_synth_f16",
+      "frame_index": 16,
+      "timestamp_ms": 533.33,
+      "defect_class": "TEST_PATTERN_CRACK_SYNTHETIC",
+      "bbox": {
+        "x_min": 0.35,
+        "y_min": 0.3333,
+        "x_max": 0.5844,
+        "y_max": 0.5
+      },
+      "polygon_mask": null,
+      "inspector_notes": "Controlled synthetic test crack pattern for pipeline verification",
+      "metadata": {
+        "synthetic_frame": true,
+        "frame_index": 16
+      }
+    },
+    {
+      "annotation_id": "ann_synth_f17",
+      "frame_index": 17,
+      "timestamp_ms": 566.67,
+      "defect_class": "TEST_PATTERN_CRACK_SYNTHETIC",
+      "bbox": {
+        "x_min": 0.3563,
+        "y_min": 0.3333,
+        "x_max": 0.5906,
+        "y_max": 0.5
+      },
+      "polygon_mask": null,
+      "inspector_notes": "Controlled synthetic test crack pattern for pipeline verification",
+      "metadata": {
+        "synthetic_frame": true,
+        "frame_index": 17
+      }
+    },
+    {
+      "annotation_id": "ann_synth_f18",
+      "frame_index": 18,
+      "timestamp_ms": 600.0,
+      "defect_class": "TEST_PATTERN_CRACK_SYNTHETIC",
+      "bbox": {
+        "x_min": 0.3625,
+        "y_min": 0.3333,
+        "x_max": 0.5969,
+        "y_max": 0.5
+      },
+      "polygon_mask": null,
+      "inspector_notes": "Controlled synthetic test crack pattern for pipeline verification",
+      "metadata": {
+        "synthetic_frame": true,
+        "frame_index": 18
+      }
+    },
+    {
+      "annotation_id": "ann_synth_f19",
+      "frame_index": 19,
+      "timestamp_ms": 633.33,
+      "defect_class": "TEST_PATTERN_CRACK_SYNTHETIC",
+      "bbox": {
+        "x_min": 0.3688,
+        "y_min": 0.3333,
+        "x_max": 0.6031,
+        "y_max": 0.5
+      },
+      "polygon_mask": null,
+      "inspector_notes": "Controlled synthetic test crack pattern for pipeline verification",
+      "metadata": {
+        "synthetic_frame": true,
+        "frame_index": 19
+      }
+    },
+    {
+      "annotation_id": "ann_synth_f20",
+      "frame_index": 20,
+      "timestamp_ms": 666.67,
+      "defect_class": "TEST_PATTERN_CRACK_SYNTHETIC",
+      "bbox": {
+        "x_min": 0.375,
+        "y_min": 0.3333,
+        "x_max": 0.6094,
+        "y_max": 0.5
+      },
+      "polygon_mask": null,
+      "inspector_notes": "Controlled synthetic test crack pattern for pipeline verification",
+      "metadata": {
+        "synthetic_frame": true,
+        "frame_index": 20
+      }
+    }
+  ]
+}

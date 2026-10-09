@@ -17,10 +17,12 @@ This roadmap defines the verified milestone sequence for developing the KeeAInu 
 - [ ] Minimal project structure (backend and frontend configurations, type baseline).
 - [ ] Initial automated test harness & verification suite.
 
-## Phase 2 — Inspection Data Workflow & Sample Test Corpus
-- [ ] Domain taxonomy definition (cracks, corrosion, wear, deposits, blockage).
-- [ ] Authorized synthetic & sample inspection test corpus generation.
-- [ ] Deterministic video fixture harness for automated testing.
+## Phase 2 — Inspection Data Workflow & Sample Test Corpus (Completed)
+- [x] Domain taxonomy definition (cracks, corrosion, wear, deposits, blockage).
+- [x] Versioned machine-readable annotation contract (`docs/ANNOTATION_SCHEMA.md` & Pydantic models).
+- [x] Authorized synthetic inspection test corpus generation (`scripts/generate_synthetic_fixtures.py`).
+- [x] Frame extraction & video container metadata extraction harness (`backend/app/modules/video/extractor.py`).
+- [x] Deterministic test harness & evidence immutability verification suite.
 
 ## Phase 3 — Recorded-Media Inspection MVP
 - [ ] Secure video & image ingestion pipeline with SHA-256 evidence hashing.
