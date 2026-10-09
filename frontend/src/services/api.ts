@@ -303,4 +303,129 @@ export async function fetchAcquisitionAuditTrail(): Promise<any[]> {
   return res.json();
 }
 
+// --- Equipment Taxonomy & Decoupled Annotations API ---
+
+export async function fetchTaxonomyStructure(): Promise<any> {
+  const res = await fetch(`${API_BASE}/taxonomy/structure`);
+  if (!res.ok) throw new Error("Failed to fetch taxonomy structure.");
+  return res.json();
+}
+
+export async function translateSourceLabel(rawLabel: string, targetFamily?: string): Promise<any> {
+  const query = new URLSearchParams({ raw_label: rawLabel });
+  if (targetFamily) query.append("target_family", targetFamily);
+  const res = await fetch(`${API_BASE}/taxonomy/translate?${query.toString()}`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error("Failed to translate label.");
+  return res.json();
+}
+
+export async function createDecoupledAnnotation(data: any): Promise<any> {
+  const res = await fetch(`${API_BASE}/taxonomy/annotations`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to create decoupled annotation.");
+  }
+  return res.json();
+}
+
+export async function fetchDecoupledAnnotations(filters?: {
+  asset_id?: string;
+  equipment_family?: string;
+  component_type?: string;
+  defect_category?: string;
+}): Promise<any[]> {
+  const query = new URLSearchParams();
+  if (filters?.asset_id) query.append("asset_id", filters.asset_id);
+  if (filters?.equipment_family) query.append("equipment_family", filters.equipment_family);
+  if (filters?.component_type) query.append("component_type", filters.component_type);
+  if (filters?.defect_category) query.append("defect_category", filters.defect_category);
+
+  const res = await fetch(`${API_BASE}/taxonomy/annotations?${query.toString()}`);
+  if (!res.ok) throw new Error("Failed to fetch annotations.");
+  return res.json();
+}
+
+// --- Equipment-Aware Evaluation & Benchmarking API ---
+
+export async function runEvaluationBenchmark(config: any): Promise<any> {
+  const res = await fetch(`${API_BASE}/evaluation/run`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Evaluation benchmark failed.");
+  }
+  return res.json();
+}
+
+export async function fetchEvaluationRuns(): Promise<any[]> {
+  const res = await fetch(`${API_BASE}/evaluation/runs`);
+  if (!res.ok) throw new Error("Failed to fetch evaluation runs.");
+  return res.json();
+}
+
+export async function fetchEvaluationReport(runId: string): Promise<any> {
+  const res = await fetch(`${API_BASE}/evaluation/runs/${runId}`);
+  if (!res.ok) throw new Error("Failed to fetch evaluation report.");
+  return res.json();
+}
+
+// --- Candidate Findings & Human Review Workflow API ---
+
+export async function fetchCandidateFindings(filters?: {
+  asset_id?: string;
+  review_state?: string;
+  equipment_family?: string;
+}): Promise<any[]> {
+  const query = new URLSearchParams();
+  if (filters?.asset_id) query.append("asset_id", filters.asset_id);
+  if (filters?.review_state) query.append("review_state", filters.review_state);
+  if (filters?.equipment_family) query.append("equipment_family", filters.equipment_family);
+
+  const res = await fetch(`${API_BASE}/findings?${query.toString()}`);
+  if (!res.ok) throw new Error("Failed to fetch candidate findings.");
+  return res.json();
+}
+
+export async function createCandidateFinding(data: any): Promise<any> {
+  const res = await fetch(`${API_BASE}/findings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to create candidate finding.");
+  }
+  return res.json();
+}
+
+export async function submitFindingReviewDecision(findingId: string, data: any): Promise<any> {
+  const res = await fetch(`${API_BASE}/findings/${findingId}/decision`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to submit finding review decision.");
+  }
+  return res.json();
+}
+
+export async function fetchFindingDecisionHistory(findingId: string): Promise<any[]> {
+  const res = await fetch(`${API_BASE}/findings/${findingId}/history`);
+  if (!res.ok) throw new Error("Failed to fetch finding decision history.");
+  return res.json();
+}
+
+
 

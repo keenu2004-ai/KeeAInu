@@ -28,6 +28,9 @@ from backend.app.api.inference import router as inference_router
 from backend.app.api.reviews import router as reviews_router
 from backend.app.api.discovery import router as discovery_router
 from backend.app.api.acquisition import router as acquisition_router
+from backend.app.api.taxonomy import router as taxonomy_router
+from backend.app.api.evaluation import router as evaluation_router
+from backend.app.api.findings import router as findings_router
 
 # Include API v1 Routers
 app.include_router(sessions_router, prefix=settings.API_V1_PREFIX)
@@ -36,6 +39,9 @@ app.include_router(inference_router, prefix=settings.API_V1_PREFIX)
 app.include_router(reviews_router, prefix=settings.API_V1_PREFIX)
 app.include_router(discovery_router, prefix=settings.API_V1_PREFIX)
 app.include_router(acquisition_router, prefix=settings.API_V1_PREFIX)
+app.include_router(taxonomy_router, prefix=settings.API_V1_PREFIX)
+app.include_router(evaluation_router, prefix=settings.API_V1_PREFIX)
+app.include_router(findings_router, prefix=settings.API_V1_PREFIX)
 
 
 @app.get("/health", tags=["Health"])

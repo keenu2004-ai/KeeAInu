@@ -13,7 +13,10 @@ import {
   Globe,
   ShieldCheck,
   History,
-  Database
+  Database,
+  Tag,
+  BarChart3,
+  UserCheck
 } from "lucide-react";
 import {
   AssetRecord,
@@ -28,6 +31,9 @@ import {
   LicensePermissionStatus,
   AcquisitionAuditEvent
 } from "../types/acquisition";
+import { EquipmentTaxonomyView } from "./EquipmentTaxonomyView";
+import { EvaluationBenchmarkView } from "./EvaluationBenchmarkView";
+import { HumanFindingsReviewView } from "./HumanFindingsReviewView";
 import {
   fetchDiscoveredAssets,
   triggerDiscoveryScan,
@@ -47,7 +53,9 @@ import {
 } from "../services/api";
 
 export const DatasetDiscoveryView: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<"inventory" | "catalog" | "licenses" | "synthetic" | "audit">("inventory");
+  const [activeTab, setActiveTab] = useState<
+    "inventory" | "catalog" | "licenses" | "synthetic" | "taxonomy" | "evaluation" | "findings" | "audit"
+  >("inventory");
 
   // Local Footage Inventory states
   const [assets, setAssets] = useState<AssetRecord[]>([]);
@@ -374,6 +382,60 @@ export const DatasetDiscoveryView: React.FC = () => {
               }}
             >
               <Sparkles size={16} /> Synthetic Studio
+            </button>
+            <button
+              onClick={() => setActiveTab("taxonomy")}
+              style={{
+                padding: "6px 14px",
+                borderRadius: "6px",
+                border: "none",
+                cursor: "pointer",
+                fontWeight: "600",
+                fontSize: "0.85rem",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                backgroundColor: activeTab === "taxonomy" ? "#2563eb" : "transparent",
+                color: activeTab === "taxonomy" ? "#ffffff" : "#94a3b8"
+              }}
+            >
+              <Tag size={16} /> Equipment Taxonomy & Labels
+            </button>
+            <button
+              onClick={() => setActiveTab("evaluation")}
+              style={{
+                padding: "6px 14px",
+                borderRadius: "6px",
+                border: "none",
+                cursor: "pointer",
+                fontWeight: "600",
+                fontSize: "0.85rem",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                backgroundColor: activeTab === "evaluation" ? "#2563eb" : "transparent",
+                color: activeTab === "evaluation" ? "#ffffff" : "#94a3b8"
+              }}
+            >
+              <BarChart3 size={16} /> Evaluation & Benchmarks
+            </button>
+            <button
+              onClick={() => setActiveTab("findings")}
+              style={{
+                padding: "6px 14px",
+                borderRadius: "6px",
+                border: "none",
+                cursor: "pointer",
+                fontWeight: "600",
+                fontSize: "0.85rem",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                backgroundColor: activeTab === "findings" ? "#2563eb" : "transparent",
+                color: activeTab === "findings" ? "#ffffff" : "#94a3b8"
+              }}
+            >
+              <UserCheck size={16} /> Human Review Findings
             </button>
             <button
               onClick={() => setActiveTab("audit")}
@@ -1212,6 +1274,24 @@ export const DatasetDiscoveryView: React.FC = () => {
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {activeTab === "taxonomy" && (
+          <div style={{ width: "100%", height: "100%", overflowY: "auto" }}>
+            <EquipmentTaxonomyView />
+          </div>
+        )}
+
+        {activeTab === "evaluation" && (
+          <div style={{ width: "100%", height: "100%", overflowY: "auto" }}>
+            <EvaluationBenchmarkView />
+          </div>
+        )}
+
+        {activeTab === "findings" && (
+          <div style={{ width: "100%", height: "100%", overflowY: "auto" }}>
+            <HumanFindingsReviewView />
           </div>
         )}
       </div>

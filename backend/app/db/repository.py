@@ -242,6 +242,76 @@ class InspectionRepository:
                 created_at TEXT NOT NULL,
                 FOREIGN KEY (asset_id) REFERENCES dataset_assets(id) ON DELETE CASCADE
             );
+
+            CREATE TABLE IF NOT EXISTS decoupled_annotations (
+                id TEXT PRIMARY KEY,
+                asset_id TEXT NOT NULL,
+                sample_id TEXT,
+                frame_index INTEGER NOT NULL DEFAULT 0,
+                equipment_family TEXT NOT NULL,
+                component_type TEXT NOT NULL,
+                defect_category TEXT NOT NULL,
+                observed_visual_condition TEXT,
+                bbox_json TEXT,
+                segmentation_mask_path TEXT,
+                source_raw_label TEXT,
+                mapping_confidence TEXT NOT NULL DEFAULT 'EXACT_MATCH',
+                annotator_type TEXT NOT NULL DEFAULT 'HUMAN_EXPERT',
+                annotator_id TEXT NOT NULL,
+                taxonomy_version TEXT NOT NULL DEFAULT '2.0.0',
+                is_synthetic INTEGER NOT NULL DEFAULT 0,
+                notes TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS candidate_findings (
+                id TEXT PRIMARY KEY,
+                asset_id TEXT NOT NULL,
+                sample_id TEXT,
+                frame_index INTEGER NOT NULL DEFAULT 0,
+                timestamp_ms REAL NOT NULL DEFAULT 0.0,
+                timestamp_provenance TEXT NOT NULL DEFAULT 'NOMINAL_APPROXIMATE',
+                equipment_family TEXT NOT NULL,
+                component_type TEXT NOT NULL,
+                candidate_defect TEXT NOT NULL,
+                candidate_bbox_json TEXT,
+                model_prediction_confidence REAL,
+                is_simulated INTEGER NOT NULL DEFAULT 1,
+                review_state TEXT NOT NULL DEFAULT 'UNREVIEWED',
+                severity TEXT NOT NULL DEFAULT 'UNSPECIFIED',
+                reviewed_by TEXT,
+                reviewer_rationale TEXT,
+                engineering_diagnosis TEXT,
+                advisory_recommendation TEXT,
+                reviewed_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS finding_decision_history (
+                id TEXT PRIMARY KEY,
+                finding_id TEXT NOT NULL,
+                previous_state TEXT NOT NULL,
+                new_state TEXT NOT NULL,
+                severity TEXT NOT NULL,
+                reviewed_by TEXT NOT NULL,
+                reviewer_rationale TEXT NOT NULL,
+                adjusted_defect TEXT,
+                adjusted_bbox_json TEXT,
+                engineering_diagnosis TEXT,
+                advisory_recommendation TEXT,
+                transitioned_at TEXT NOT NULL,
+                FOREIGN KEY (finding_id) REFERENCES candidate_findings(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS evaluation_runs (
+                id TEXT PRIMARY KEY,
+                run_name TEXT NOT NULL,
+                dataset_manifest_hash TEXT NOT NULL,
+                report_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
             """)
 
     # --- Session Operations ---
@@ -1150,7 +1220,324 @@ class InspectionRepository:
             )
         return {"id": link_id, "asset_id": asset_id, "provenance_type": provenance_type, "created_at": now}
 
+    # --- Equipment Taxonomy & Decoupled Annotations ---
+
+    def create_decoupled_annotation(self, annot_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Insert an equipment-aware decoupled annotation."""
+        now = datetime.now(timezone.utc).isoformat()
+        annot_id = annot_data.get("id") or f"ant_{uuid.uuid4().hex[:12]}"
+        bbox_json = json.dumps(annot_data.get("bbox")) if annot_data.get("bbox") else None
+
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO decoupled_annotations (
+                    id, asset_id, sample_id, frame_index, equipment_family,
+                    component_type, defect_category, observed_visual_condition,
+                    bbox_json, segmentation_mask_path, source_raw_label,
+                    mapping_confidence, annotator_type, annotator_id,
+                    taxonomy_version, is_synthetic, notes, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    annot_id,
+                    annot_data["asset_id"],
+                    annot_data.get("sample_id"),
+                    annot_data.get("frame_index", 0),
+                    annot_data["equipment_family"],
+                    annot_data["component_type"],
+                    annot_data["defect_category"],
+                    annot_data.get("observed_visual_condition"),
+                    bbox_json,
+                    annot_data.get("segmentation_mask_path"),
+                    annot_data.get("source_raw_label"),
+                    annot_data.get("mapping_confidence", "EXACT_MATCH"),
+                    annot_data.get("annotator_type", "HUMAN_EXPERT"),
+                    annot_data.get("annotator_id", "Inspector"),
+                    annot_data.get("taxonomy_version", "2.0.0"),
+                    1 if annot_data.get("is_synthetic") else 0,
+                    annot_data.get("notes"),
+                    now,
+                    now
+                )
+            )
+        return self.get_decoupled_annotation(annot_id) # type: ignore
+
+    def get_decoupled_annotation(self, annot_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve annotation by ID."""
+        with self._get_connection() as conn:
+            cursor = conn.execute("SELECT * FROM decoupled_annotations WHERE id = ?", (annot_id,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            res = dict(row)
+            res["is_synthetic"] = bool(res["is_synthetic"])
+            res["bbox"] = json.loads(res["bbox_json"]) if res.get("bbox_json") else None
+            return res
+
+    def list_decoupled_annotations(
+        self,
+        asset_id: Optional[str] = None,
+        equipment_family: Optional[str] = None,
+        component_type: Optional[str] = None,
+        defect_category: Optional[str] = None,
+        skip: int = 0,
+        limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """List annotations with equipment taxonomy filters."""
+        query = "SELECT * FROM decoupled_annotations WHERE 1=1"
+        params: List[Any] = []
+        if asset_id:
+            query += " AND asset_id = ?"
+            params.append(asset_id)
+        if equipment_family:
+            query += " AND equipment_family = ?"
+            params.append(equipment_family)
+        if component_type:
+            query += " AND component_type = ?"
+            params.append(component_type)
+        if defect_category:
+            query += " AND defect_category = ?"
+            params.append(defect_category)
+
+        query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, skip])
+
+        with self._get_connection() as conn:
+            cursor = conn.execute(query, tuple(params))
+            results = []
+            for r in cursor.fetchall():
+                item = dict(r)
+                item["is_synthetic"] = bool(item["is_synthetic"])
+                item["bbox"] = json.loads(item["bbox_json"]) if item.get("bbox_json") else None
+                results.append(item)
+            return results
+
+    # --- Candidate Findings & Human Review State Machine ---
+
+    def create_candidate_finding(self, finding_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Register a new candidate finding observation."""
+        now = datetime.now(timezone.utc).isoformat()
+        finding_id = finding_data.get("id") or f"fnd_{uuid.uuid4().hex[:12]}"
+        bbox_json = json.dumps(finding_data.get("candidate_bbox")) if finding_data.get("candidate_bbox") else None
+
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO candidate_findings (
+                    id, asset_id, sample_id, frame_index, timestamp_ms,
+                    timestamp_provenance, equipment_family, component_type,
+                    candidate_defect, candidate_bbox_json, model_prediction_confidence,
+                    is_simulated, review_state, severity, reviewed_by, reviewer_rationale,
+                    engineering_diagnosis, advisory_recommendation, reviewed_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    finding_id,
+                    finding_data["asset_id"],
+                    finding_data.get("sample_id"),
+                    finding_data.get("frame_index", 0),
+                    finding_data.get("timestamp_ms", 0.0),
+                    finding_data.get("timestamp_provenance", "NOMINAL_APPROXIMATE"),
+                    finding_data["equipment_family"],
+                    finding_data["component_type"],
+                    finding_data["candidate_defect"],
+                    bbox_json,
+                    finding_data.get("model_prediction_confidence"),
+                    1 if finding_data.get("is_simulated", True) else 0,
+                    finding_data.get("review_state", "UNREVIEWED"),
+                    finding_data.get("severity", "UNSPECIFIED"),
+                    finding_data.get("reviewed_by"),
+                    finding_data.get("reviewer_rationale"),
+                    finding_data.get("engineering_diagnosis"),
+                    finding_data.get("advisory_recommendation"),
+                    finding_data.get("reviewed_at"),
+                    now,
+                    now
+                )
+            )
+        return self.get_candidate_finding(finding_id) # type: ignore
+
+    def get_candidate_finding(self, finding_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve candidate finding by ID."""
+        with self._get_connection() as conn:
+            cursor = conn.execute("SELECT * FROM candidate_findings WHERE id = ?", (finding_id,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            res = dict(row)
+            res["is_simulated"] = bool(res["is_simulated"])
+            res["candidate_bbox"] = json.loads(res["candidate_bbox_json"]) if res.get("candidate_bbox_json") else None
+            return res
+
+    def list_candidate_findings(
+        self,
+        asset_id: Optional[str] = None,
+        review_state: Optional[str] = None,
+        equipment_family: Optional[str] = None,
+        skip: int = 0,
+        limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """List candidate findings with state filters."""
+        query = "SELECT * FROM candidate_findings WHERE 1=1"
+        params: List[Any] = []
+        if asset_id:
+            query += " AND asset_id = ?"
+            params.append(asset_id)
+        if review_state:
+            query += " AND review_state = ?"
+            params.append(review_state)
+        if equipment_family:
+            query += " AND equipment_family = ?"
+            params.append(equipment_family)
+
+        query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, skip])
+
+        with self._get_connection() as conn:
+            cursor = conn.execute(query, tuple(params))
+            results = []
+            for r in cursor.fetchall():
+                item = dict(r)
+                item["is_simulated"] = bool(item["is_simulated"])
+                item["candidate_bbox"] = json.loads(item["candidate_bbox_json"]) if item.get("candidate_bbox_json") else None
+                results.append(item)
+            return results
+
+    def record_finding_decision(
+        self,
+        finding_id: str,
+        review_state: str,
+        severity: str,
+        reviewed_by: str,
+        reviewer_rationale: str,
+        adjusted_defect: Optional[str] = None,
+        adjusted_bbox: Optional[Dict[str, Any]] = None,
+        engineering_diagnosis: Optional[str] = None,
+        advisory_recommendation: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Record a human review decision transition with strict audit history tracking.
+        """
+        current = self.get_candidate_finding(finding_id)
+        if not current:
+            raise KeyError(f"Finding '{finding_id}' not found.")
+
+        now = datetime.now(timezone.utc).isoformat()
+        history_id = f"fhist_{uuid.uuid4().hex[:12]}"
+        bbox_json = json.dumps(adjusted_bbox) if adjusted_bbox else current.get("candidate_bbox_json")
+        target_defect = adjusted_defect or current["candidate_defect"]
+
+        with self._get_connection() as conn:
+            # 1. Insert audit log history
+            conn.execute(
+                """
+                INSERT INTO finding_decision_history (
+                    id, finding_id, previous_state, new_state, severity,
+                    reviewed_by, reviewer_rationale, adjusted_defect,
+                    adjusted_bbox_json, engineering_diagnosis, advisory_recommendation,
+                    transitioned_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    history_id,
+                    finding_id,
+                    current["review_state"],
+                    review_state,
+                    severity,
+                    reviewed_by,
+                    reviewer_rationale,
+                    adjusted_defect,
+                    bbox_json,
+                    engineering_diagnosis,
+                    advisory_recommendation,
+                    now
+                )
+            )
+
+            # 2. Update finding record
+            conn.execute(
+                """
+                UPDATE candidate_findings
+                SET review_state = ?,
+                    severity = ?,
+                    candidate_defect = ?,
+                    candidate_bbox_json = ?,
+                    reviewed_by = ?,
+                    reviewer_rationale = ?,
+                    engineering_diagnosis = ?,
+                    advisory_recommendation = ?,
+                    reviewed_at = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    review_state,
+                    severity,
+                    target_defect,
+                    bbox_json,
+                    reviewed_by,
+                    reviewer_rationale,
+                    engineering_diagnosis,
+                    advisory_recommendation,
+                    now,
+                    now,
+                    finding_id
+                )
+            )
+
+        return self.get_candidate_finding(finding_id) # type: ignore
+
+    def get_finding_decision_history(self, finding_id: str) -> List[Dict[str, Any]]:
+        """Retrieve full decision transition history for a finding."""
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT * FROM finding_decision_history WHERE finding_id = ? ORDER BY transitioned_at ASC",
+                (finding_id,)
+            )
+            return [dict(r) for r in cursor.fetchall()]
+
+    # --- Evaluation Runs Persistence ---
+
+    def save_evaluation_run(self, report_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Persist an evaluation report and manifest hash."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO evaluation_runs (id, run_name, dataset_manifest_hash, report_json, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    report_data["run_id"],
+                    report_data["run_name"],
+                    report_data["dataset_manifest_hash"],
+                    json.dumps(report_data),
+                    now
+                )
+            )
+        return self.get_evaluation_run(report_data["run_id"]) # type: ignore
+
+    def get_evaluation_run(self, run_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve evaluation report by ID."""
+        with self._get_connection() as conn:
+            cursor = conn.execute("SELECT * FROM evaluation_runs WHERE id = ?", (run_id,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return json.loads(row["report_json"])
+
+    def list_evaluation_runs(self, skip: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
+        """List historic evaluation runs."""
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT id, run_name, dataset_manifest_hash, created_at FROM evaluation_runs ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                (limit, skip)
+            )
+            return [dict(r) for r in cursor.fetchall()]
+
 
 repo = InspectionRepository()
+
 
 
