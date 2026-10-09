@@ -21,7 +21,7 @@ def test_valid_yolo_detection_layout(tmp_path: Path):
     assert report["image_count"] == 2
     assert report["missing_label_count"] == 0
     assert report["label_error_count"] == 0
-    assert report["valid_box_row_count"] == 2
+    assert report["detection_row_count"] == 2
     assert report["split_image_counts"] == {"train": 1, "valid": 1}
 
 def test_out_of_range_box_and_class_are_reported(tmp_path: Path):
@@ -57,3 +57,10 @@ def test_segmentation_polygon_rows_are_not_silently_accepted(tmp_path: Path):
     report = validate_dataset(tmp_path)
     assert report["label_error_count"] == 1
     assert "expected_5_values" in report["label_errors"][0]["error"]
+
+
+def test_readme_text_is_not_counted_as_orphan_label(tmp_path: Path):
+    make_pair(tmp_path, "train", "a", "0 0.5 0.5 0.2 0.2")
+    (tmp_path / "README.txt").write_text("dataset notes", encoding="utf-8")
+    report = validate_dataset(tmp_path)
+    assert report["unpaired_label_count"] == 0
