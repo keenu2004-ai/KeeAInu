@@ -68,7 +68,7 @@
       "id": "detect-corrosion-instance-segmentation",
       "name": "Detect Corrosion IS",
       "url": "https://universe.roboflow.com/computervision-a8zib/detect_corrosion_is",
-      "reported_images": 978,
+      "reported_images": 2236,
       "reported_task": "instance-segmentation",
       "reported_classes": [
         "corrosion"
@@ -79,7 +79,27 @@
       "license_review_status": "pending_human_review",
       "commercial_training_allowed": null,
       "attribution_required": true,
-      "notes": "Additional corrosion mask candidate. Public page reports 978 images and displays CC BY 4.0. Verify the exact export version and mask quality before selecting it."
+      "notes": "Corrosion instance-segmentation candidate. Project page reports 978 images for its base listing, while version v5 lists 2,236 images; select and pin an exact export version before acquisition. Public page displays CC BY 4.0. Verify third-party rights, annotation quality, and the intended use before training.",
+      "project_page_images": 978,
+      "latest_version_id": "v5",
+      "latest_version_generated_at": "2023-12-19"
+    },
+    {
+      "id": "corrosion-segmentation-semantic",
+      "name": "Dataset Corrosion Segment",
+      "url": "https://universe.roboflow.com/computervision-a8zib/dataset-corrosion-segment",
+      "reported_images": 978,
+      "reported_task": "semantic-segmentation",
+      "reported_classes": [
+        "corrosion"
+      ],
+      "displayed_license": "CC BY 4.0",
+      "license_evidence_url": "https://universe.roboflow.com/computervision-a8zib/dataset-corrosion-segment",
+      "license_evidence_checked_at": "2026-10-09",
+      "license_review_status": "pending_human_review",
+      "commercial_training_allowed": null,
+      "attribution_required": true,
+      "notes": "Alternative corrosion mask candidate. Confirm exact version count, segmentation export format, third-party material, and intended-use rights before acquisition."
     }
   ]
 }
