@@ -1,4 +1,4 @@
-"""Thumbnail Generation and Derived Media Workflow."""
+"""Thumbnail Generation and Derived Media Workflow (Hardened)."""
 
 import uuid
 from pathlib import Path
@@ -19,6 +19,7 @@ def generate_video_thumbnails(
     """
     Generate bounded timeline preview thumbnails for a recorded video.
     Stores thumbnails in derived media storage and registers them in the repository.
+    Verifies write success before returning records.
     """
     # Check if already generated
     existing = repo.list_thumbnails(media_id)
@@ -57,8 +58,11 @@ def generate_video_thumbnails(
             thumb_id = f"thumb_{uuid.uuid4().hex[:12]}"
             thumb_file = out_dir / f"{thumb_id}.jpg"
             
-            # Encode and save
-            cv2.imwrite(str(thumb_file), resized, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            # Encode and save with return value check
+            write_ok = cv2.imwrite(str(thumb_file), resized, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            if not write_ok or not thumb_file.exists():
+                raise IOError(f"Failed to write thumbnail artifact to disk: {thumb_file.name}")
+
             thumb_hash = calculate_sha256(thumb_file)
 
             record = repo.add_thumbnail(

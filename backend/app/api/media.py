@@ -1,7 +1,6 @@
-"""Media Ingestion, Streaming, and Frame Access API Router."""
+"""Media Ingestion, Streaming, and Frame Access API Router (Hardened)."""
 
 import hashlib
-import tempfile
 import uuid
 from pathlib import Path
 import cv2
@@ -12,9 +11,17 @@ from PIL import Image
 from backend.app.core.config import settings
 from backend.app.core.security import calculate_sha256, is_path_safe
 from backend.app.db.repository import repo
-from backend.app.modules.ingestion.validator import validate_media_file
+from backend.app.modules.ingestion.validator import (
+    validate_media_file,
+    MAX_IMAGE_PIXELS,
+    MAX_IMAGE_DIMENSION,
+    MAX_VIDEO_DIMENSION
+)
 from backend.app.modules.video.extractor import VideoFrameExtractor
 from backend.app.modules.video.thumbnails import generate_video_thumbnails
+
+# Apply decompression limits to PIL
+Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
 
 router = APIRouter(prefix="/media", tags=["Media Ingestion & Frames"])
 
@@ -30,6 +37,7 @@ async def upload_media(
     - Computes SHA-256 on the fly.
     - Validates file signatures, size limits, and decoder readability.
     - Atomically stores raw media in the immutable Media Vault.
+    - Cleans up artifacts on failure.
     - Generates timeline thumbnails for video media.
     """
     session = repo.get_session(session_id)
@@ -49,9 +57,11 @@ async def upload_media(
     
     # Write to a secure temp file first
     temp_file = raw_vault_dir / f"tmp_{media_id}{suffix}"
+    target_file = raw_vault_dir / f"{media_id}{suffix}"
     hasher = hashlib.sha256()
     total_bytes = 0
     header_sample = bytearray()
+    moved_to_target = False
 
     try:
         with open(temp_file, "wb") as f_out:
@@ -73,12 +83,12 @@ async def upload_media(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err_msg)
 
         sha256_hash = hasher.hexdigest()
-        target_file = raw_vault_dir / f"{media_id}{suffix}"
         
         # Atomically rename temp file to permanent vault destination
         temp_file.replace(target_file)
+        moved_to_target = True
 
-        # Inspect media properties
+        # Inspect media properties & decoder readability
         width, height, duration_sec, fps, total_frames = 0, 0, 0.0, 0.0, 1
         is_readable = False
         media_type = "application/octet-stream"
@@ -87,7 +97,16 @@ async def upload_media(
             media_type = f"image/{suffix.replace('.', '').replace('jpg', 'jpeg')}"
             try:
                 with Image.open(target_file) as img:
+                    img.verify()  # Integrity check on container
+                # Re-open after verify to read dimensions safely
+                with Image.open(target_file) as img:
                     width, height = img.size
+                    if width <= 0 or height <= 0:
+                        raise ValueError("Invalid image dimensions (0x0).")
+                    if width > MAX_IMAGE_DIMENSION or height > MAX_IMAGE_DIMENSION:
+                        raise ValueError(f"Image dimension ({width}x{height}) exceeds maximum limit.")
+                    if (width * height) > MAX_IMAGE_PIXELS:
+                        raise ValueError(f"Image pixel count exceeds maximum allowed limit.")
                     is_readable = True
             except Exception as e:
                 raise HTTPException(
@@ -99,11 +118,16 @@ async def upload_media(
             try:
                 with VideoFrameExtractor(target_file) as extractor:
                     meta = extractor.get_metadata()
+                    if not meta.is_readable or meta.total_frames <= 0 or meta.fps <= 0:
+                        raise ValueError("Video container is unreadable, corrupt, or contains no decodable frames.")
+                    if meta.width > MAX_VIDEO_DIMENSION or meta.height > MAX_VIDEO_DIMENSION:
+                        raise ValueError(f"Video resolution ({meta.width}x{meta.height}) exceeds maximum limit.")
+                    
                     width, height = meta.width, meta.height
                     duration_sec = meta.duration_seconds
                     fps = meta.fps
                     total_frames = meta.total_frames
-                    is_readable = meta.is_readable
+                    is_readable = True
             except Exception as e:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -136,12 +160,17 @@ async def upload_media(
         return record
 
     except HTTPException:
+        # Atomic cleanup on failure
         if temp_file.exists():
             temp_file.unlink()
+        if moved_to_target and target_file.exists():
+            target_file.unlink()
         raise
     except Exception as e:
         if temp_file.exists():
             temp_file.unlink()
+        if moved_to_target and target_file.exists():
+            target_file.unlink()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Media ingestion error: {str(e)}"
@@ -162,14 +191,25 @@ async def get_media_metadata(media_id: str):
 
 @router.get("/{media_id}/content")
 async def get_media_content(media_id: str):
-    """Serve the original raw media file for local playback."""
+    """
+    Serve the original raw media file for local playback.
+    Enforces on-demand SHA-256 evidence integrity check before serving.
+    """
     media = repo.get_media(media_id)
     if not media:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Media '{media_id}' not found.")
 
-    file_path = Path(media["file_path"])
+    file_path = Path(media["file_path"]).resolve()
     if not file_path.exists() or not is_path_safe(file_path, settings.RAW_MEDIA_DIR):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media file unavailable.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Stored media file missing from vault.")
+
+    # Cryptographic integrity check
+    current_hash = calculate_sha256(file_path)
+    if current_hash != media["sha256_hash"]:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Evidence integrity failure: file hash does not match registered evidence digest."
+        )
 
     return FileResponse(
         path=file_path,
@@ -194,7 +234,7 @@ async def get_thumbnail_content(media_id: str, thumb_id: str):
     if not thumb or thumb["media_id"] != media_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Thumbnail not found.")
 
-    thumb_path = Path(thumb["file_path"])
+    thumb_path = Path(thumb["file_path"]).resolve()
     if not thumb_path.exists() or not is_path_safe(thumb_path, settings.DERIVED_MEDIA_DIR):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Thumbnail file unavailable.")
 
@@ -204,18 +244,21 @@ async def get_thumbnail_content(media_id: str, thumb_id: str):
 @router.get("/{media_id}/frames/{frame_index}")
 async def get_extracted_frame(media_id: str, frame_index: int):
     """Extract and return a specific video frame as an image."""
+    if frame_index < 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Frame index must be non-negative.")
+
     media = repo.get_media(media_id)
     if not media:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Media '{media_id}' not found.")
 
-    file_path = Path(media["file_path"])
-    if not file_path.exists():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source media missing.")
+    file_path = Path(media["file_path"]).resolve()
+    if not file_path.exists() or not is_path_safe(file_path, settings.RAW_MEDIA_DIR):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source media missing from vault.")
 
     if not media["media_type"].startswith("video/"):
         # For still images, serve the image directly on frame_index 0
         if frame_index != 0:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Images only have frame index 0.")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Still images only have frame index 0.")
         return FileResponse(path=file_path, media_type=media["media_type"])
 
     try:

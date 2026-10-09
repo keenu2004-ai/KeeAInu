@@ -1,22 +1,13 @@
-"""Media Ingestion Validation and Safety Checks."""
+"""Media Ingestion Validation and Safety Checks (Hardened)."""
 
 from pathlib import Path
 from typing import Tuple, Optional
 from backend.app.core.config import settings
 
-
-# Magic byte signatures for authorized media formats
-MAGIC_SIGNATURES = {
-    # Images
-    "jpeg": [b"\xFF\xD8\xFF"],
-    "png": [b"\x89\x50\x4E\x47\x0D\x0A\x1A\x0A"],
-    "bmp": [b"\x42\x4D"],
-    "webp": [b"\x52\x49\x46\x46"],  # RIFF....WEBP
-    # Videos
-    "mp4": [b"\x66\x74\x79\x70"],  # 'ftyp' box offset at byte 4
-    "mkv": [b"\x1A\x45\xDF\xA3"],  # Matroska header
-    "avi": [b"\x52\x49\x46\x46"],  # RIFF....AVI
-}
+# Max decompression limits to prevent resource exhaustion / decompression bombs
+MAX_IMAGE_PIXELS = 50_000_000  # 50 Megapixels
+MAX_IMAGE_DIMENSION = 16_384   # 16K max width or height
+MAX_VIDEO_DIMENSION = 8_192    # 8K max width or height
 
 
 def validate_media_file(
@@ -26,12 +17,12 @@ def validate_media_file(
 ) -> Tuple[bool, Optional[str]]:
     """
     Validate that a media file is safe to ingest:
-    1. Size within allowed bounds.
-    2. Extension is allowed.
-    3. File header matches expected magic bytes.
+    1. Size is within configured non-zero bounds.
+    2. Extension is in allowed whitelist.
+    3. Header signature (magic bytes) strictly matches the container format.
     """
     if file_size_bytes <= 0:
-        return False, "File is empty."
+        return False, "File is empty (0 bytes)."
         
     if file_size_bytes > settings.MAX_UPLOAD_SIZE_BYTES:
         return False, f"File size ({file_size_bytes} bytes) exceeds limit of {settings.MAX_UPLOAD_SIZE_BYTES} bytes."
@@ -41,26 +32,53 @@ def validate_media_file(
     if suffix not in allowed:
         return False, f"Unsupported file extension '{suffix}'. Allowed: {', '.join(allowed)}"
         
-    # Check magic bytes
-    if len(file_bytes_sample) < 12:
-        return False, "File header too short for validation."
+    # Check minimum header length for initial sanity
+    if len(file_bytes_sample) < 4:
+        return False, "File header too short for format signature validation."
 
-    # Validate signature based on extension
+    # --- Image Format Signature Checks ---
     if suffix in [".jpg", ".jpeg"]:
         if not file_bytes_sample.startswith(b"\xFF\xD8\xFF"):
-            return False, "Invalid JPEG header signature."
+            return False, "Invalid JPEG header signature (expected 0xFFD8FF)."
+            
     elif suffix == ".png":
         if not file_bytes_sample.startswith(b"\x89PNG\r\n\x1a\n"):
-            return False, "Invalid PNG header signature."
+            return False, "Invalid PNG header signature (expected 0x89PNG)."
+            
     elif suffix == ".bmp":
         if not file_bytes_sample.startswith(b"BM"):
-            return False, "Invalid BMP header signature."
-    elif suffix == ".mkv":
-        if not file_bytes_sample.startswith(b"\x1A\x45\xDF\xA3"):
-            return False, "Invalid Matroska/MKV header signature."
-    elif suffix == ".mp4":
-        # MP4 standard: ftyp box appears at byte offset 4
-        if b"ftyp" not in file_bytes_sample[:16]:
-            return False, "Invalid MP4/ISOBMFF container header signature."
+            return False, "Invalid BMP header signature (expected 'BM')."
             
+    elif suffix == ".webp":
+        if not (file_bytes_sample[:4] == b"RIFF" and file_bytes_sample[8:12] == b"WEBP"):
+            return False, "Invalid WEBP header signature (expected RIFF....WEBP)."
+
+    # --- Video Container Format Signature Checks ---
+    elif suffix == ".mp4":
+        # ISOBMFF box header: 4-byte box size, then 'ftyp' at offset 4
+        if file_bytes_sample[4:8] != b"ftyp":
+            return False, "Invalid MP4 header signature (expected 'ftyp' box at offset 4)."
+            
+    elif suffix == ".mov":
+        # QuickTime / ISO BMFF: ftyp, moov, wide, or mdat box at offset 4
+        box_type = file_bytes_sample[4:8]
+        if box_type not in [b"ftyp", b"moov", b"wide", b"mdat"]:
+            return False, "Invalid MOV/QuickTime container header signature."
+
+    elif suffix == ".avi":
+        # RIFF container with 'AVI ' form type at offset 8
+        if not (file_bytes_sample[:4] == b"RIFF" and file_bytes_sample[8:12] == b"AVI "):
+            return False, "Invalid AVI header signature (expected RIFF....AVI )."
+
+    elif suffix == ".mkv":
+        # Matroska / EBML header ID: 0x1A45DFA3 at offset 0
+        if not file_bytes_sample.startswith(b"\x1A\x45\xDF\xA3"):
+            return False, "Invalid Matroska (MKV) EBML header signature."
+
+    elif suffix == ".wmv":
+        # ASF Header Object GUID: 30 26 B2 75 8E 66 CF 11 A6 D9 00 AA 00 62 CE 6C
+        asf_guid = b"\x30\x26\xB2\x75\x8E\x66\xCF\x11\xA6\xD9\x00\xAA\x00\x62\xCE\x6C"
+        if not file_bytes_sample.startswith(asf_guid):
+            return False, "Invalid WMV/ASF header signature."
+
     return True, None

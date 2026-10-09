@@ -1,4 +1,4 @@
-"""Simulated AI Inference and Findings API Router."""
+"""Simulated AI Inference and Findings API Router (Hardened)."""
 
 import uuid
 from pathlib import Path
@@ -7,6 +7,8 @@ import cv2
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
+from backend.app.core.config import settings
+from backend.app.core.security import is_path_safe
 from backend.app.db.repository import repo
 from backend.app.modules.inference.mock_engine import MockInferenceEngine
 from backend.app.modules.video.extractor import VideoFrameExtractor
@@ -28,7 +30,7 @@ class AnalyzeFrameRequest(BaseModel):
 async def analyze_frame(req: AnalyzeFrameRequest):
     """
     Run simulated defect candidate analysis on a selected media frame.
-    Persists candidate findings with explicit is_simulated=True.
+    Enforces session/media association integrity and explicit simulation labeling.
     """
     session = repo.get_session(req.session_id)
     if not session:
@@ -44,9 +46,16 @@ async def analyze_frame(req: AnalyzeFrameRequest):
             detail=f"Media '{req.media_id}' not found."
         )
 
-    file_path = Path(media["file_path"])
-    if not file_path.exists():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media file missing.")
+    # Gate 3: Enforce session/media consistency
+    if media["session_id"] != req.session_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Integrity error: Media '{req.media_id}' does not belong to session '{req.session_id}'."
+        )
+
+    file_path = Path(media["file_path"]).resolve()
+    if not file_path.exists() or not is_path_safe(file_path, settings.RAW_MEDIA_DIR):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media file missing from storage vault.")
 
     frame_bytes = b""
     timestamp_ms = 0.0
@@ -57,14 +66,21 @@ async def analyze_frame(req: AnalyzeFrameRequest):
                 frame_bgr, frame_meta = extractor.extract_frame(req.frame_index)
                 timestamp_ms = frame_meta.timestamp_ms
                 success, encoded = cv2.imencode(".jpg", frame_bgr)
-                if success:
-                    frame_bytes = encoded.tobytes()
+                if not success or encoded is None:
+                    raise RuntimeError(f"Failed to encode frame {req.frame_index} for inference.")
+                frame_bytes = encoded.tobytes()
         except IndexError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
         except Exception as e:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
     else:
         frame_bytes = file_path.read_bytes()
+
+    if not frame_bytes or len(frame_bytes) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Frame buffer is empty; cannot run inference."
+        )
 
     # Execute inference engine
     inference_res = await mock_engine.infer_frame(
