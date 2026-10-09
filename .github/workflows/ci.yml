@@ -31,7 +31,7 @@ jobs:
 
       - name: Run Backend Tests
         run: |
-          python -m pytest backend/tests scripts/dataset_pipeline/test_audit_archive.py scripts/dataset_pipeline/test_validate_yolo_dataset.py -v
+          python -m pytest backend/tests scripts/dataset_pipeline/test_audit_archive.py scripts/dataset_pipeline/test_validate_yolo_dataset.py -v -ra
 
   frontend-build:
     name: Frontend Build & Typecheck
