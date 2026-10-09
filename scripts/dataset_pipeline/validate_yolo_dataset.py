@@ -73,7 +73,9 @@ def validate_dataset(root: Path, class_count: int | None = None) -> dict[str, An
     images = sorted(p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS)
     if not images:
         raise ValueError("No supported image files found under dataset root.")
-    # Only treat text files inside conventional labels directories as label candidates;\n    # dataset READMEs and other documentation must not be counted as orphan labels.\n    label_files = sorted(p for p in root.rglob("*.txt") if p.is_file() and p.parent.name.lower() == "labels")
+    # Only treat text files inside conventional labels directories as label candidates;
+    # dataset READMEs and other documentation must not be counted as orphan labels.
+    label_files = sorted(p for p in root.rglob("*.txt") if p.is_file() and p.parent.name.lower() == "labels")
     labels_by_parent_stem: dict[tuple[Path, str], list[Path]] = defaultdict(list)
     for label in label_files:
         labels_by_parent_stem[(label.parent.resolve(), label.stem)].append(label)
