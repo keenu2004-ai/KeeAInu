@@ -153,6 +153,18 @@ class VideoFrameExtractor:
             self._cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
             ret, frame = self._cap.read()
             
+            # Fallback to sequential read if seek returned empty frame (common in OpenCV Linux ffmpeg backend)
+            if not ret or frame is None:
+                self._cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                curr = 0
+                while curr <= frame_index:
+                    ret, frame = self._cap.read()
+                    if not ret or frame is None:
+                        break
+                    if curr == frame_index:
+                        break
+                    curr += 1
+
             if not ret or frame is None:
                 raise RuntimeError(f"Decoder failed to read frame at index {frame_index}")
 
