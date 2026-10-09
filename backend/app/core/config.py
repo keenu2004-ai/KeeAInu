@@ -1,7 +1,7 @@
 """KeeAInu Application Configuration."""
 
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -41,7 +41,26 @@ class Settings(BaseSettings):
     # Inference Settings
     DEFAULT_INFERENCE_ENGINE: str = "mock"
     CONFIDENCE_THRESHOLD: float = 0.50
-    
+
+    # Roboflow SAM 3 & Hosted Vision Inference
+    ROBOFLOW_API_KEY: Optional[str] = None
+    ROBOFLOW_API_URL: str = "https://infer.roboflow.com"
+    ROBOFLOW_MODEL_ID: str = "videoscope-defect-segmentation/1"
+    ROBOFLOW_SAM_PROMPTS: List[str] = [
+        "crack",
+        "pitting",
+        "corrosion",
+        "erosion",
+        "deposit",
+        "mechanical defect"
+    ]
+    ROBOFLOW_TIMEOUT_SECONDS: float = 30.0
+    ROBOFLOW_MAX_RETRIES: int = 2
+    ROBOFLOW_CACHE_ENABLED: bool = True
+    ROBOFLOW_ALLOW_CLOUD_INFERENCE: bool = False  # Privacy Gate: require explicit authorization
+    ROBOFLOW_MAX_IMAGE_SIZE_BYTES: int = 25 * 1024 * 1024  # 25 MB
+    ROBOFLOW_RATE_LIMIT_PER_MINUTE: int = 60
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

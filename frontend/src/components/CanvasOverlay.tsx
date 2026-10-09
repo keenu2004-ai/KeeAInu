@@ -50,19 +50,45 @@ export const CanvasOverlay: React.FC<CanvasOverlayProps> = ({
       // Color coding by review status
       let strokeColor = "#06b6d4"; // Default cyan
       let fillColor = "rgba(6, 182, 212, 0.15)";
+      let polyFillColor = "rgba(6, 182, 212, 0.35)";
 
       if (finding.decision_status === "CONFIRMED") {
         strokeColor = "#10b981";
         fillColor = "rgba(16, 185, 129, 0.2)";
+        polyFillColor = "rgba(16, 185, 129, 0.4)";
       } else if (finding.decision_status === "REJECTED") {
         strokeColor = "#ef4444";
         fillColor = "rgba(239, 68, 68, 0.15)";
+        polyFillColor = "rgba(239, 68, 68, 0.35)";
       } else if (finding.decision_status === "ADJUSTED") {
         strokeColor = "#3b82f6";
         fillColor = "rgba(59, 130, 246, 0.2)";
+        polyFillColor = "rgba(59, 130, 246, 0.4)";
       }
 
-      // Draw bounding box
+      // 1. Draw polygon mask if available (SAM 3 / Segmentation)
+      if (finding.polygon_mask && finding.polygon_mask.length >= 3) {
+        ctx.save();
+        ctx.beginPath();
+        finding.polygon_mask.forEach((pt, idx) => {
+          const px = pt[0] * width;
+          const py = pt[1] * height;
+          if (idx === 0) {
+            ctx.moveTo(px, py);
+          } else {
+            ctx.lineTo(px, py);
+          }
+        });
+        ctx.closePath();
+        ctx.fillStyle = polyFillColor;
+        ctx.fill();
+        ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = isActive ? 2.5 : 1.5;
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // 2. Draw bounding box outline
       ctx.strokeStyle = strokeColor;
       ctx.lineWidth = isActive ? 3 : 2;
       ctx.fillStyle = fillColor;
@@ -88,7 +114,8 @@ export const CanvasOverlay: React.FC<CanvasOverlayProps> = ({
       ctx.stroke();
 
       // Label background
-      const label = `${finding.defect_class} (${(finding.confidence_score * 100).toFixed(0)}%) ${finding.is_simulated ? '[SIM]' : ''}`;
+      const segTag = finding.polygon_mask ? '[SAM 3 MASK]' : '';
+      const label = `${finding.defect_class} (${(finding.confidence_score * 100).toFixed(0)}%) ${finding.is_simulated ? '[SIM]' : segTag}`;
       ctx.font = "bold 11px 'JetBrains Mono', monospace";
       const textMetrics = ctx.measureText(label);
       const textWidth = textMetrics.width;

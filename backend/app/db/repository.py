@@ -312,7 +312,42 @@ class InspectionRepository:
                 report_json TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS inference_records (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                media_id TEXT NOT NULL,
+                frame_index INTEGER NOT NULL,
+                timestamp_ms REAL NOT NULL,
+                evidence_sha256 TEXT NOT NULL,
+                engine_name TEXT NOT NULL,
+                model_id TEXT NOT NULL,
+                model_version TEXT NOT NULL,
+                prompt_config_json TEXT,
+                is_simulated INTEGER NOT NULL,
+                processing_duration_ms REAL NOT NULL,
+                cache_hit INTEGER NOT NULL DEFAULT 0,
+                raw_response_json TEXT,
+                normalized_result_json TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+                FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE
+            );
             """)
+
+            # Safe schema migration for findings table extensions
+            try:
+                conn.execute("ALTER TABLE findings ADD COLUMN polygon_mask_json TEXT")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                conn.execute("ALTER TABLE findings ADD COLUMN evidence_sha256 TEXT")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                conn.execute("ALTER TABLE findings ADD COLUMN inference_record_id TEXT")
+            except sqlite3.OperationalError:
+                pass
 
     # --- Session Operations ---
 
@@ -482,21 +517,27 @@ class InspectionRepository:
         bbox_dict: Dict[str, Any],
         is_simulated: bool,
         model_name: str,
-        model_version: str
+        model_version: str,
+        polygon_mask: Optional[List[List[float]]] = None,
+        evidence_sha256: Optional[str] = None,
+        inference_record_id: Optional[str] = None
     ) -> Dict[str, Any]:
         now = datetime.now(timezone.utc).isoformat()
         bbox_json = json.dumps(bbox_dict)
+        poly_json = json.dumps(polygon_mask) if polygon_mask is not None else None
         with self._get_connection() as conn:
             conn.execute(
                 """
                 INSERT INTO findings (
                     id, session_id, media_id, frame_index, timestamp_ms, defect_class,
-                    confidence_score, bbox_json, is_simulated, model_name, model_version, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    confidence_score, bbox_json, is_simulated, model_name, model_version,
+                    polygon_mask_json, evidence_sha256, inference_record_id, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     finding_id, session_id, media_id, frame_index, timestamp_ms, defect_class,
-                    confidence_score, bbox_json, 1 if is_simulated else 0, model_name, model_version, now
+                    confidence_score, bbox_json, 1 if is_simulated else 0, model_name, model_version,
+                    poly_json, evidence_sha256, inference_record_id, now
                 )
             )
             # Create default pending review
@@ -530,6 +571,7 @@ class InspectionRepository:
             res = dict(row)
             res["is_simulated"] = bool(res["is_simulated"])
             res["bbox"] = json.loads(res["bbox_json"]) if res.get("bbox_json") else None
+            res["polygon_mask"] = json.loads(res["polygon_mask_json"]) if res.get("polygon_mask_json") else None
             if res.get("adjusted_bbox_json"):
                 res["adjusted_bbox"] = json.loads(res["adjusted_bbox_json"])
             else:
@@ -554,6 +596,7 @@ class InspectionRepository:
                 res = dict(row)
                 res["is_simulated"] = bool(res["is_simulated"])
                 res["bbox"] = json.loads(res["bbox_json"]) if res.get("bbox_json") else None
+                res["polygon_mask"] = json.loads(res["polygon_mask_json"]) if res.get("polygon_mask_json") else None
                 if res.get("adjusted_bbox_json"):
                     res["adjusted_bbox"] = json.loads(res["adjusted_bbox_json"])
                 else:
@@ -1539,6 +1582,98 @@ class InspectionRepository:
                 (limit, skip)
             )
             return [dict(r) for r in cursor.fetchall()]
+
+    # --- Inference Records (Provenance & Audit) ---
+
+    def create_inference_record(
+        self,
+        record_id: str,
+        session_id: str,
+        media_id: str,
+        frame_index: int,
+        timestamp_ms: float,
+        evidence_sha256: str,
+        engine_name: str,
+        model_id: str,
+        model_version: str,
+        is_simulated: bool,
+        processing_duration_ms: float,
+        prompt_config_dict: Optional[Dict[str, Any]] = None,
+        cache_hit: bool = False,
+        raw_response_dict: Optional[Dict[str, Any]] = None,
+        normalized_result_dict: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Persist full provenance record for an inference run."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO inference_records (
+                    id, session_id, media_id, frame_index, timestamp_ms,
+                    evidence_sha256, engine_name, model_id, model_version,
+                    prompt_config_json, is_simulated, processing_duration_ms,
+                    cache_hit, raw_response_json, normalized_result_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record_id, session_id, media_id, frame_index, timestamp_ms,
+                    evidence_sha256, engine_name, model_id, model_version,
+                    json.dumps(prompt_config_dict) if prompt_config_dict else None,
+                    1 if is_simulated else 0, processing_duration_ms,
+                    1 if cache_hit else 0,
+                    json.dumps(raw_response_dict) if raw_response_dict else None,
+                    json.dumps(normalized_result_dict) if normalized_result_dict else None,
+                    now
+                )
+            )
+        return self.get_inference_record(record_id) # type: ignore
+
+    def get_inference_record(self, record_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve an inference provenance record."""
+        with self._get_connection() as conn:
+            cursor = conn.execute("SELECT * FROM inference_records WHERE id = ?", (record_id,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            res = dict(row)
+            res["is_simulated"] = bool(res["is_simulated"])
+            res["cache_hit"] = bool(res["cache_hit"])
+            res["prompt_config"] = json.loads(res["prompt_config_json"]) if res.get("prompt_config_json") else None
+            res["raw_response"] = json.loads(res["raw_response_json"]) if res.get("raw_response_json") else None
+            res["normalized_result"] = json.loads(res["normalized_result_json"]) if res.get("normalized_result_json") else None
+            return res
+
+    def list_inference_records(
+        self,
+        session_id: Optional[str] = None,
+        media_id: Optional[str] = None,
+        skip: int = 0,
+        limit: int = 50
+    ) -> List[Dict[str, Any]]:
+        """List inference provenance records."""
+        query = "SELECT * FROM inference_records WHERE 1=1"
+        params: List[Any] = []
+        if session_id:
+            query += " AND session_id = ?"
+            params.append(session_id)
+        if media_id:
+            query += " AND media_id = ?"
+            params.append(media_id)
+        query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, skip])
+
+        with self._get_connection() as conn:
+            cursor = conn.execute(query, params)
+            records = []
+            for row in cursor.fetchall():
+                res = dict(row)
+                res["is_simulated"] = bool(res["is_simulated"])
+                res["cache_hit"] = bool(res["cache_hit"])
+                res["prompt_config"] = json.loads(res["prompt_config_json"]) if res.get("prompt_config_json") else None
+                res["raw_response"] = json.loads(res["raw_response_json"]) if res.get("raw_response_json") else None
+                res["normalized_result"] = json.loads(res["normalized_result_json"]) if res.get("normalized_result_json") else None
+                records.append(res)
+            return records
 
 
 repo = InspectionRepository()

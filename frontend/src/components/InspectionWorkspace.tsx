@@ -42,8 +42,22 @@ export const InspectionWorkspace: React.FC<InspectionWorkspaceProps> = ({
   const [thumbnails, setThumbnails] = useState<ThumbnailItem[]>([]);
   const [findings, setFindings] = useState<Finding[]>([]);
   const [activeFindingId, setActiveFindingId] = useState<string | null>(null);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [isUploadOpen, setIsUploadOpen] = useState(false);
+  const [selectedEngine, setSelectedEngine] = useState<string>("roboflow");
+  const [allowCloudInference, setAllowCloudInference] = useState<boolean>(true);
+  const [customPrompts, setCustomPrompts] = useState<string>("defect, crack, pitting, corrosion");
+  const [confidenceThreshold, setConfidenceThreshold] = useState<number>(0.5);
+  const [useCache, setUseCache] = useState<boolean>(true);
+  const [analyzing, setAnalyzing] = useState<boolean>(false);
+  const [isUploadOpen, setIsUploadOpen] = useState<boolean>(false);
+  const [lastInferenceMeta, setLastInferenceMeta] = useState<{
+    engine_name?: string;
+    model_version?: string;
+    is_simulated?: boolean;
+    processing_duration_ms?: number;
+    evidence_sha256?: string;
+    cache_hit?: boolean;
+    record_id?: string;
+  } | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -109,11 +123,29 @@ export const InspectionWorkspace: React.FC<InspectionWorkspaceProps> = ({
     if (!activeMedia) return;
     try {
       setAnalyzing(true);
+      const promptList = customPrompts
+        ? customPrompts.split(",").map((p) => p.trim()).filter((p) => p.length > 0)
+        : undefined;
+
       const res = await analyzeFrame({
         session_id: session.id,
         media_id: activeMedia.id,
         frame_index: currentFrame,
-        confidence_threshold: 0.5,
+        confidence_threshold: confidenceThreshold,
+        engine: selectedEngine,
+        prompts: promptList,
+        allow_cloud_inference: allowCloudInference,
+        use_cache: useCache,
+      });
+
+      setLastInferenceMeta({
+        engine_name: res.engine_name,
+        model_version: res.model_version,
+        is_simulated: res.is_simulated,
+        processing_duration_ms: res.processing_duration_ms,
+        evidence_sha256: res.evidence_sha256,
+        cache_hit: res.cache_hit,
+        record_id: res.inference_record_id,
       });
 
       // Append new findings
@@ -127,7 +159,7 @@ export const InspectionWorkspace: React.FC<InspectionWorkspaceProps> = ({
         setActiveFindingId(res.findings[0].id);
       }
     } catch (err: any) {
-      alert(`Analysis failed: ${err.message}`);
+      alert(`Inference failed: ${err.message}`);
     } finally {
       setAnalyzing(false);
     }
@@ -267,7 +299,7 @@ export const InspectionWorkspace: React.FC<InspectionWorkspaceProps> = ({
           {/* Viewport Playback and Action Controls */}
           {activeMedia && (
             <div className="viewport-controls">
-              <div className="playback-controls-row">
+              <div className="playback-controls-row" style={{ flexWrap: "wrap", gap: "10px", alignItems: "center" }}>
                 <div className="playback-buttons">
                   <button
                     className="btn btn-secondary btn-sm"
@@ -297,16 +329,96 @@ export const InspectionWorkspace: React.FC<InspectionWorkspaceProps> = ({
                   </button>
                 </div>
 
+                {/* AI Vision Engine Selection & Privacy Controls */}
+                <div style={{ display: "flex", gap: "8px", alignItems: "center", flex: 1 }}>
+                  <select
+                    className="form-select"
+                    style={{ fontSize: "0.8rem", padding: "4px 8px", background: "var(--bg-surface)", color: "#e2e8f0" }}
+                    value={selectedEngine}
+                    onChange={(e) => setSelectedEngine(e.target.value)}
+                  >
+                    <option value="roboflow">Roboflow SAM 3 (Segmentation)</option>
+                    <option value="mock">Mock Baseline (Simulated)</option>
+                  </select>
+
+                  <input
+                    type="text"
+                    className="form-input"
+                    style={{ fontSize: "0.8rem", padding: "4px 8px", flex: 1, minWidth: "180px" }}
+                    value={customPrompts}
+                    onChange={(e) => setCustomPrompts(e.target.value)}
+                    placeholder="Prompts: defect, crack, pitting..."
+                    title="Defect segmentation prompt labels"
+                  />
+
+                  <div style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "0.75rem", color: "#94a3b8" }}>
+                    <span>Conf:</span>
+                    <input
+                      type="number"
+                      step="0.05"
+                      min="0.1"
+                      max="1.0"
+                      className="form-input"
+                      style={{ width: "55px", fontSize: "0.75rem", padding: "2px 4px" }}
+                      value={confidenceThreshold}
+                      onChange={(e) => setConfidenceThreshold(parseFloat(e.target.value) || 0.5)}
+                      title="Confidence threshold"
+                    />
+                  </div>
+
+                  <label style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "0.75rem", color: "#94a3b8", cursor: "pointer" }} title="Cache inference results deterministically">
+                    <input
+                      type="checkbox"
+                      checked={useCache}
+                      onChange={(e) => setUseCache(e.target.checked)}
+                    />
+                    Cache
+                  </label>
+
+                  <label style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "0.75rem", color: "#94a3b8", cursor: "pointer" }} title="Allow transmitting frame to cloud vision service">
+                    <input
+                      type="checkbox"
+                      checked={allowCloudInference}
+                      onChange={(e) => setAllowCloudInference(e.target.checked)}
+                    />
+                    Cloud Consent
+                  </label>
+                </div>
+
                 <button
                   className="btn btn-primary btn-sm"
-                  style={{ background: "linear-gradient(135deg, #06b6d4, #8b5cf6)" }}
+                  style={{ background: selectedEngine === "roboflow" ? "linear-gradient(135deg, #06b6d4, #8b5cf6)" : "var(--bg-surface)" }}
                   onClick={handleAnalyzeFrame}
                   disabled={analyzing}
                 >
                   <Sparkles size={15} />
-                  {analyzing ? "Analyzing Frame..." : "Run AI Defect Detection"}
+                  {analyzing ? "Running Segmentation..." : selectedEngine === "roboflow" ? "SAM 3 Segment Frame" : "Run Mock Detection"}
                 </button>
               </div>
+
+              {/* Provenance and Inference Metadata Banner */}
+              {lastInferenceMeta && (
+                <div style={{
+                  display: "flex",
+                  gap: "12px",
+                  alignItems: "center",
+                  padding: "6px 12px",
+                  background: "rgba(15, 23, 42, 0.6)",
+                  borderRadius: "8px",
+                  fontSize: "0.75rem",
+                  fontFamily: "var(--font-mono)",
+                  border: "1px solid rgba(6, 182, 212, 0.2)",
+                  color: "#cbd5e1"
+                }}>
+                  <span style={{ color: lastInferenceMeta.is_simulated ? "#fbbf24" : "#10b981", fontWeight: 700 }}>
+                    {lastInferenceMeta.is_simulated ? "[SIMULATED BASELINE]" : "[REAL SAM 3 INFERENCE]"}
+                  </span>
+                  <span>Engine: <strong>{lastInferenceMeta.engine_name}</strong> ({lastInferenceMeta.model_version})</span>
+                  <span>Latency: <strong>{lastInferenceMeta.processing_duration_ms}ms</strong></span>
+                  {lastInferenceMeta.cache_hit && <span style={{ color: "#38bdf8" }}>(Cache Hit)</span>}
+                  <span>SHA-256: {lastInferenceMeta.evidence_sha256?.substring(0, 10)}...</span>
+                </div>
+              )}
 
               {/* Timeline scrubber with thumbnails */}
               {activeMedia.media_type.startsWith("video/") && (

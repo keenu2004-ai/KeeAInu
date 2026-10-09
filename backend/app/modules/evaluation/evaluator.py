@@ -12,6 +12,7 @@ import hashlib
 import json
 from typing import Dict, List, Any, Optional, Tuple
 import uuid
+import cv2
 import numpy as np
 
 from backend.app.schemas.evaluation import (
@@ -90,6 +91,35 @@ def compute_bounding_box_iou(
     if union_area <= 0.0:
         return 0.0
     return inter_area / union_area
+
+
+def compute_polygon_mask_iou(
+    poly1: List[List[float]],
+    poly2: List[List[float]],
+    grid_size: int = 256
+) -> float:
+    """
+    Compute Intersection over Union (IoU) between two normalized 2D polygon segmentation masks.
+    Rasterizes normalized coordinates onto a discrete grid for exact mask intersection.
+    """
+    if not poly1 or not poly2 or len(poly1) < 3 or len(poly2) < 3:
+        return 0.0
+
+    mask1 = np.zeros((grid_size, grid_size), dtype=np.uint8)
+    mask2 = np.zeros((grid_size, grid_size), dtype=np.uint8)
+
+    pts1 = (np.array(poly1, dtype=np.float32) * (grid_size - 1)).astype(np.int32)
+    pts2 = (np.array(poly2, dtype=np.float32) * (grid_size - 1)).astype(np.int32)
+
+    cv2.fillPoly(mask1, [pts1], 1)
+    cv2.fillPoly(mask2, [pts2], 1)
+
+    intersection = np.logical_and(mask1 == 1, mask2 == 1).sum()
+    union = np.logical_or(mask1 == 1, mask2 == 1).sum()
+
+    if union == 0:
+        return 0.0
+    return float(round(intersection / union, 4))
 
 
 def compute_manifest_hash(
@@ -228,9 +258,15 @@ class EvaluationEngine:
                     fam_tp += 1
                     overall_tp += 1
 
+                    pred_poly = matching_preds[0].get("polygon_mask")
+                    annot_poly = a.get("polygon_mask")
                     pred_box = matching_preds[0].get("bbox") or matching_preds[0].get("candidate_bbox")
                     annot_box = a.get("bbox") or a.get("bounding_box")
-                    if pred_box and annot_box:
+
+                    if pred_poly and annot_poly:
+                        iou = compute_polygon_mask_iou(pred_poly, annot_poly)
+                        iou_values.append(iou)
+                    elif pred_box and annot_box:
                         iou = compute_bounding_box_iou(pred_box, annot_box)
                         iou_values.append(iou)
 

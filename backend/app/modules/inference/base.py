@@ -23,13 +23,20 @@ class FindingCandidate(BaseModel):
 
 
 class FrameInferenceResult(BaseModel):
-    """Inference result for a single frame."""
+    """Inference result for a single frame with full evidence provenance."""
     frame_index: int
     timestamp_ms: float
     engine_name: str
     model_version: str
     is_simulated: bool
     findings: List[FindingCandidate] = Field(default_factory=list)
+    processing_duration_ms: float = 0.0
+    evidence_sha256: Optional[str] = None
+    cache_hit: bool = False
+    image_width: Optional[int] = None
+    image_height: Optional[int] = None
+    prompts_used: List[str] = Field(default_factory=list)
+    raw_response: Optional[Dict[str, Any]] = None
 
 
 class BaseInferenceEngine(ABC):

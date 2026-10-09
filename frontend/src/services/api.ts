@@ -64,12 +64,44 @@ export async function fetchMediaThumbnails(mediaId: string): Promise<ThumbnailIt
   return res.json();
 }
 
+export async function fetchInferenceEngines(): Promise<{
+  engines: {
+    engine_name: string;
+    model_version: string;
+    is_simulated: boolean;
+    auth_configured: boolean;
+  }[];
+  cloud_inference_globally_allowed: boolean;
+  cache_enabled: boolean;
+}> {
+  const res = await fetch(`${API_BASE}/inference/engines`);
+  if (!res.ok) throw new Error("Failed to fetch inference engines.");
+  return res.json();
+}
+
 export async function analyzeFrame(data: {
   session_id: string;
   media_id: string;
   frame_index: number;
   confidence_threshold?: number;
-}): Promise<{ findings: Finding[]; is_simulated: boolean }> {
+  engine?: string;
+  prompts?: string[];
+  allow_cloud_inference?: boolean;
+  use_cache?: boolean;
+}): Promise<{
+  inference_record_id: string;
+  media_id: string;
+  frame_index: number;
+  timestamp_ms: number;
+  engine_name: string;
+  model_version: string;
+  is_simulated: boolean;
+  evidence_sha256: string;
+  processing_duration_ms: number;
+  cache_hit: boolean;
+  findings_count: number;
+  findings: Finding[];
+}> {
   const res = await fetch(`${API_BASE}/inference/analyze-frame`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -79,6 +111,25 @@ export async function analyzeFrame(data: {
     const err = await res.json();
     throw new Error(err.detail || "Analysis request failed.");
   }
+  return res.json();
+}
+
+export async function fetchInferenceRecords(params?: {
+  session_id?: string;
+  media_id?: string;
+}): Promise<any[]> {
+  const query = new URLSearchParams();
+  if (params?.session_id) query.append("session_id", params.session_id);
+  if (params?.media_id) query.append("media_id", params.media_id);
+
+  const res = await fetch(`${API_BASE}/inference/records?${query.toString()}`);
+  if (!res.ok) throw new Error("Failed to fetch inference records.");
+  return res.json();
+}
+
+export async function fetchInferenceRecord(recordId: string): Promise<any> {
+  const res = await fetch(`${API_BASE}/inference/records/${recordId}`);
+  if (!res.ok) throw new Error("Failed to fetch inference record details.");
   return res.json();
 }
 

@@ -20,6 +20,7 @@ from backend.app.modules.taxonomy.taxonomy_manager import (
 from backend.app.modules.evaluation.evaluator import (
     compute_classification_metrics,
     compute_bounding_box_iou,
+    compute_polygon_mask_iou,
     EvaluationEngine
 )
 
@@ -90,6 +91,24 @@ def test_compute_bounding_box_iou():
 
     box_disjoint = {"x_min": 0.6, "y_min": 0.6, "x_max": 0.9, "y_max": 0.9}
     assert compute_bounding_box_iou(box1, box_disjoint) == 0.0
+
+
+def test_compute_polygon_mask_iou():
+    """Verify polygon segmentation mask IoU raster calculation."""
+    # Identical squares
+    poly1 = [[0.1, 0.1], [0.5, 0.1], [0.5, 0.5], [0.1, 0.5]]
+    poly2 = [[0.1, 0.1], [0.5, 0.1], [0.5, 0.5], [0.1, 0.5]]
+    iou_identical = compute_polygon_mask_iou(poly1, poly2)
+    assert iou_identical >= 0.99
+
+    # Disjoint polygons
+    poly_disjoint = [[0.6, 0.6], [0.9, 0.6], [0.9, 0.9], [0.6, 0.9]]
+    assert compute_polygon_mask_iou(poly1, poly_disjoint) == 0.0
+
+    # Half overlapping rectangles
+    poly_half = [[0.3, 0.1], [0.7, 0.1], [0.7, 0.5], [0.3, 0.5]]
+    iou_half = compute_polygon_mask_iou(poly1, poly_half)
+    assert 0.30 <= iou_half <= 0.40
 
 
 def test_leak_free_dataset_partitioning():
