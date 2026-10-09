@@ -1,0 +1,78 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+dist/
+out/
+.next/
+
+# Environment Variables & Secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.cert
+*.crt
+
+# Media Evidence Vault & Storage (Raw footage must never be committed)
+data/media/raw/*
+data/media/derived/*
+data/artifacts/*
+data/db/*.sqlite
+data/db/*.db
+!data/media/raw/.gitkeep
+!data/media/derived/.gitkeep
+!data/artifacts/.gitkeep
+!data/db/.gitkeep
+
+# Large Video Files
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.wmv
+
+# Heavy ML Weights & Checkpoints (Keep repository lightweight)
+*.pt
+*.pth
+*.onnx
+*.safetensors
+*.bin
+*.h5
+!backend/app/models/.gitkeep
+
+# OS generated files
+.DS_Store
+Thumbs.db
+Desktop.ini
