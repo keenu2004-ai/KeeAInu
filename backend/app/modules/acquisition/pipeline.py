@@ -1,4 +1,11 @@
-"""Controlled Acquisition and Ingestion Pipeline for Approved Datasets."""
+"""Controlled Acquisition and Ingestion Pipeline for Approved Datasets.
+
+Strictly enforces:
+1. License Gate Enforcement (Evaluation, Non-Commercial, Commercial)
+2. Honest Provider Handling (No synthetic placeholder images masquerading as public datasets)
+3. Sandboxed File Operations and SHA-256 Immutable Lineage
+4. Clear MANUAL_ACTION_REQUIRED reporting for unautomated public catalogs
+"""
 
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,7 +21,8 @@ from backend.app.schemas.acquisition import (
     AcquisitionJobRecord,
     JobStatus,
     LicensePermissionStatus,
-    SyntheticGenerationRequest
+    SyntheticGenerationRequest,
+    DownloadSupportStatus
 )
 from backend.app.modules.acquisition.license_gate import can_acquire_candidate
 from backend.app.modules.acquisition.providers.registry import provider_registry
@@ -27,7 +35,7 @@ async def execute_acquisition(
 ) -> Dict[str, Any]:
     """
     Execute controlled acquisition of an approved candidate dataset.
-    Follows: Verify Gate -> Safety Limits -> Download/Import -> Verify Hash -> Profile -> Register Lineage.
+    Follows: Verify Gate -> Provider Capability Check -> Import/Generate -> Verify Hash -> Profile -> Register Lineage.
     """
     candidate = repo.get_candidate(req.candidate_id)
     if not candidate:
@@ -77,7 +85,7 @@ async def execute_acquisition(
         files_acquired = 0
         acquired_assets: List[Dict[str, Any]] = []
 
-        # If it's a synthetic or internal provider, handle acquisition deterministically
+        # If it's a synthetic provider, handle deterministic procedural generation
         if candidate["source_id"] == "synthetic_generator":
             synth_prov: SyntheticGeneratorProvider = provider # type: ignore
             synth_req = SyntheticGenerationRequest(
@@ -133,32 +141,42 @@ async def execute_acquisition(
                             )
 
         else:
-            # Public catalog acquisition (simulated/mocked download runner with verifiable test fixture)
-            sample_asset_path = target_dir / f"acquired_{req.candidate_id[:8]}_sample.jpg"
-            # Generate valid sample for acquired external candidate
-            import cv2
-            import numpy as np
-            sample_img = np.full((480, 640, 3), 128, dtype=np.uint8)
-            cv2.putText(sample_img, f"KeeAInu Acquired: {candidate['title'][:30]}", (20, 50),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-            cv2.putText(sample_img, f"License: {candidate['license_identifier']}", (20, 90),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 200), 1)
-            cv2.imwrite(str(sample_asset_path), sample_img, [cv2.IMWRITE_JPEG_QUALITY, 90])
-            
-            total_bytes = sample_asset_path.stat().st_size
-            files_acquired = 1
-            profiled = scan_and_profile_file(
-                file_path=sample_asset_path,
-                source_root=target_dir,
-                is_synthetic=False
+            # Public catalog candidates (Hugging Face, Kaggle, Google Dataset Search, AWS, Data.gov, GitHub)
+            # When direct automated downloader is not authenticated or unavailable, fail honestly with MANUAL_ACTION_REQUIRED.
+            # Never generate a placeholder image and label it as real public data.
+            msg = (
+                f"Direct automated acquisition is unavailable for public catalog provider '{candidate['provider_name']}'. "
+                f"Canonical URL: {candidate['canonical_url']}. "
+                "Operator must download the dataset archive from the verified publisher and import it into "
+                "the authorized internal import vault ('data/internal_imports/')."
             )
-            if profiled:
-                acquired_assets.append(profiled)
-                repo.record_provenance_link(
-                    asset_id=profiled["id"],
-                    candidate_id=req.candidate_id,
-                    provenance_type="DIRECT_ACQUISITION"
-                )
+            repo.update_acquisition_job(
+                job_id=job_id,
+                status=JobStatus.MANUAL_ACTION_REQUIRED.value,
+                bytes_downloaded=0,
+                files_acquired=0,
+                error_message=msg
+            )
+            repo.record_audit_event(
+                event_type="ACQUISITION_MANUAL_ACTION_REQUIRED",
+                details={
+                    "candidate_id": req.candidate_id,
+                    "provider_name": candidate["provider_name"],
+                    "canonical_url": candidate["canonical_url"],
+                    "instructions": msg
+                },
+                job_id=job_id,
+                candidate_id=req.candidate_id
+            )
+            return {
+                "status": "MANUAL_ACTION_REQUIRED",
+                "job": repo.get_acquisition_job(job_id),
+                "message": msg,
+                "error_message": msg,
+                "canonical_url": candidate["canonical_url"],
+                "acquired_assets_count": 0,
+                "acquired_assets": []
+            }
 
         # Update job to COMPLETED
         updated_job = repo.update_acquisition_job(

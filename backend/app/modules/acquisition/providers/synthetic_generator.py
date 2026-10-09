@@ -15,6 +15,8 @@ from backend.app.schemas.acquisition import (
     SourceProviderCategory,
     CandidateAcquisitionStatus,
     LicensePermissionStatus,
+    DiscoveryVerificationStatus,
+    DownloadSupportStatus,
     SyntheticGenerationRequest
 )
 from backend.app.modules.acquisition.providers.base import BaseSourceProvider
@@ -109,6 +111,8 @@ class SyntheticGeneratorProvider(BaseSourceProvider):
                     description=f"{item['description']} Generated media carries explicit 'is_synthetic=True' metadata.",
                     limitations_notes="Synthetic / procedurally simulated imagery. Must NOT be used as proof of real physical defect accuracy.",
                     acquisition_status=CandidateAcquisitionStatus.ACQUISITION_APPROVED,
+                    verification_status=DiscoveryVerificationStatus.LIVE_METADATA_VERIFIED,
+                    download_support=DownloadSupportStatus.DIRECT_DOWNLOAD_SUPPORTED,
                     created_at=now,
                     updated_at=now
                 )

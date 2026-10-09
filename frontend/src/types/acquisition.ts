@@ -27,7 +27,20 @@ export type CandidateAcquisitionStatus =
   | 'INGESTED'
   | 'REJECTED';
 
-export type JobStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+export type DiscoveryVerificationStatus =
+  | 'LIVE_METADATA_VERIFIED'
+  | 'CURATED_LEAD_AWAITING_VERIFICATION'
+  | 'PUBLISHER_LINK_VERIFIED_DATA_UNAVAILABLE'
+  | 'SOURCE_UNREACHABLE'
+  | 'LICENSE_OR_ACCESS_UNKNOWN';
+
+export type DownloadSupportStatus =
+  | 'DIRECT_DOWNLOAD_SUPPORTED'
+  | 'MANUAL_ACTION_REQUIRED'
+  | 'UNSUPPORTED'
+  | 'CREDENTIALS_REQUIRED';
+
+export type JobStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'MANUAL_ACTION_REQUIRED';
 
 export interface SourceProviderInfo {
   id: string;
@@ -77,6 +90,8 @@ export interface DatasetCandidateRecord {
   description?: string;
   limitations_notes?: string;
   acquisition_status: CandidateAcquisitionStatus;
+  verification_status?: DiscoveryVerificationStatus;
+  download_support?: DownloadSupportStatus;
   created_at: string;
   updated_at: string;
 }

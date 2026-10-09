@@ -9,7 +9,10 @@ from backend.app.schemas.acquisition import (
     DatasetCandidateRecord,
     SearchCandidateQuery,
     SourceProviderCategory,
-    CandidateAcquisitionStatus
+    CandidateAcquisitionStatus,
+    DiscoveryVerificationStatus,
+    DownloadSupportStatus,
+    LicensePermissionStatus
 )
 from backend.app.modules.acquisition.providers.base import BaseSourceProvider
 from backend.app.modules.acquisition.relevance import evaluate_relevance
@@ -117,6 +120,8 @@ class GoogleDatasetSearchProvider(BaseSourceProvider):
                     description=item["description"],
                     limitations_notes=item["limitations_notes"],
                     acquisition_status=CandidateAcquisitionStatus.DISCOVERED,
+                    verification_status=DiscoveryVerificationStatus.CURATED_LEAD_AWAITING_VERIFICATION,
+                    download_support=DownloadSupportStatus.MANUAL_ACTION_REQUIRED,
                     created_at=now,
                     updated_at=now
                 )
@@ -160,6 +165,8 @@ class GoogleDatasetSearchProvider(BaseSourceProvider):
                 description=f"Live aggregated search link into thousands of academic and publisher data portals for '{query.query}'. Individual dataset licenses must be verified per landing page.",
                 limitations_notes="Catalog aggregator. Underlying media hosted externally. Requires individual license and access audit.",
                 acquisition_status=CandidateAcquisitionStatus.DISCOVERED,
+                verification_status=DiscoveryVerificationStatus.PUBLISHER_LINK_VERIFIED_DATA_UNAVAILABLE,
+                download_support=DownloadSupportStatus.MANUAL_ACTION_REQUIRED,
                 created_at=now,
                 updated_at=now
             )

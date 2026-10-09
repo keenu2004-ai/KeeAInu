@@ -36,6 +36,24 @@ class CandidateAcquisitionStatus(str, Enum):
     REJECTED = "REJECTED"
 
 
+class DiscoveryVerificationStatus(str, Enum):
+    """Honest verification state of dataset candidate metadata."""
+    LIVE_METADATA_VERIFIED = "LIVE_METADATA_VERIFIED"
+    CURATED_LEAD_AWAITING_VERIFICATION = "CURATED_LEAD_AWAITING_VERIFICATION"
+    PUBLISHER_LINK_VERIFIED_DATA_UNAVAILABLE = "PUBLISHER_LINK_VERIFIED_DATA_UNAVAILABLE"
+    SOURCE_UNREACHABLE = "SOURCE_UNREACHABLE"
+    LICENSE_OR_ACCESS_UNKNOWN = "LICENSE_OR_ACCESS_UNKNOWN"
+
+
+class DownloadSupportStatus(str, Enum):
+    """Operational status for direct automated acquisition."""
+    DIRECT_DOWNLOAD_SUPPORTED = "DIRECT_DOWNLOAD_SUPPORTED"
+    INTERNAL_SANDBOX_IMPORT = "INTERNAL_SANDBOX_IMPORT"
+    SYNTHETIC_GENERATION_SUPPORTED = "SYNTHETIC_GENERATION_SUPPORTED"
+    MANUAL_ACTION_REQUIRED = "MANUAL_ACTION_REQUIRED"
+    UNSUPPORTED = "UNSUPPORTED"
+
+
 class JobStatus(str, Enum):
     """Acquisition and generation job execution statuses."""
     PENDING = "PENDING"
@@ -43,6 +61,7 @@ class JobStatus(str, Enum):
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
+    MANUAL_ACTION_REQUIRED = "MANUAL_ACTION_REQUIRED"
 
 
 class ProvenanceType(str, Enum):
@@ -76,6 +95,8 @@ class SourceProviderInfo(BaseModel):
     auth_configured: bool = False
     rate_limit_per_min: int = 60
     description: str
+    supports_live_search: bool = False
+    default_download_support: DownloadSupportStatus = DownloadSupportStatus.MANUAL_ACTION_REQUIRED
 
 
 class SearchCandidateQuery(BaseModel):
@@ -113,6 +134,8 @@ class DatasetCandidateRecord(BaseModel):
     description: Optional[str] = None
     limitations_notes: Optional[str] = None
     acquisition_status: CandidateAcquisitionStatus
+    verification_status: DiscoveryVerificationStatus = DiscoveryVerificationStatus.CURATED_LEAD_AWAITING_VERIFICATION
+    download_support: DownloadSupportStatus = DownloadSupportStatus.MANUAL_ACTION_REQUIRED
     created_at: str
     updated_at: str
 

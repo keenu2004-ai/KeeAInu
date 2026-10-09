@@ -48,7 +48,8 @@ def test_taxonomy_api_endpoints():
 
 def test_candidate_findings_and_state_machine_flow():
     """Verify complete lifecycle of candidate findings and human decision state machine."""
-    finding_id = f"fnd_test_{pytest.__name__}_01"
+    import uuid
+    finding_id = f"fnd_test_{uuid.uuid4().hex[:8]}"
 
     # 1. Create candidate finding (defaults to UNREVIEWED)
     payload = {
@@ -77,6 +78,7 @@ def test_candidate_findings_and_state_machine_flow():
         "review_state": "CONFIRMED_DEFECT",
         "severity": "CRITICAL",
         "reviewed_by": "Inspector",
+        "reviewer_role": "CERTIFIED_INSPECTOR",
         "reviewer_rationale": "   " # Blank rationale should fail
     }
     res = client.post(f"/api/v1/findings/{finding_id}/decision", json=bad_decision)
@@ -89,6 +91,7 @@ def test_candidate_findings_and_state_machine_flow():
             "review_state": "UNDER_REVIEW",
             "severity": "MINOR",
             "reviewed_by": "NDT Level 2",
+            "reviewer_role": "CERTIFIED_INSPECTOR",
             "reviewer_rationale": "Escalating for closer metallurgical review"
         }
     )
@@ -100,6 +103,7 @@ def test_candidate_findings_and_state_machine_flow():
         "review_state": "CONFIRMED_DEFECT",
         "severity": "MAJOR",
         "reviewed_by": "NDT Level 3 Lead",
+        "reviewer_role": "CERTIFIED_INSPECTOR",
         "reviewer_rationale": "Micro-pitting clusters verified exceeding 0.5mm threshold.",
         "engineering_diagnosis": "Lubrication degradation surface contact wear",
         "advisory_recommendation": "Advisory: Drain and replace gearbox oil within 25 operating hours."

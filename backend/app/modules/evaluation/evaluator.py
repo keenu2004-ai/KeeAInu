@@ -1,6 +1,15 @@
-"""Equipment-Aware Evaluation Engine and Leakage-Protected Partitioning."""
+"""Equipment-Aware Evaluation Engine and Leakage-Protected Partitioning.
+
+Enforces:
+1. True mathematical metrics (No fabricated precision, recall, or hardcoded IoU values).
+2. Deterministic SHA-256 dataset manifest hashing.
+3. Strict sample-level matching on (asset_id, frame_index, equipment_family, defect_category).
+4. Transparent is_simulated_baseline flags for mock/baseline runs.
+"""
 
 from datetime import datetime, timezone
+import hashlib
+import json
 from typing import Dict, List, Any, Optional, Tuple
 import uuid
 import numpy as np
@@ -64,7 +73,7 @@ def compute_bounding_box_iou(
     box1: Dict[str, float],
     box2: Dict[str, float]
 ) -> float:
-    """Compute Intersection over Union (IoU) between two bounding boxes."""
+    """Compute Intersection over Union (IoU) between two normalized bounding boxes."""
     x1 = max(box1["x_min"], box2["x_min"])
     y1 = max(box1["y_min"], box2["y_min"])
     x2 = min(box1["x_max"], box2["x_max"])
@@ -83,6 +92,41 @@ def compute_bounding_box_iou(
     return inter_area / union_area
 
 
+def compute_manifest_hash(
+    annotations: List[Dict[str, Any]],
+    config: EvaluationRunConfig
+) -> str:
+    """
+    Compute a reproducible SHA-256 hash of the exact evaluation manifest and split config.
+    """
+    manifest_data = {
+        "config": {
+            "name": config.name,
+            "split_strategy": config.split_strategy.value,
+            "train_ratio": config.train_ratio,
+            "val_ratio": config.val_ratio,
+            "test_ratio": config.test_ratio,
+            "synthetic_handling": config.synthetic_handling.value,
+            "random_seed": config.random_seed
+        },
+        "annotations": sorted(
+            [
+                {
+                    "asset_id": a.get("asset_id"),
+                    "frame_index": a.get("frame_index", 0),
+                    "equipment_family": a.get("equipment_family"),
+                    "defect_category": a.get("defect_category"),
+                    "is_synthetic": a.get("is_synthetic", False)
+                }
+                for a in annotations
+            ],
+            key=lambda x: (x["asset_id"], x["frame_index"], x.get("defect_category") or "")
+        )
+    }
+    encoded = json.dumps(manifest_data, sort_keys=True).encode("utf-8")
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+
+
 class EvaluationEngine:
     """Pluggable, equipment-aware evaluation benchmark runner."""
 
@@ -97,7 +141,7 @@ class EvaluationEngine:
         preventing temporal and adjacent frame leakage.
         """
         rng = np.random.default_rng(config.random_seed)
-        shuffled = list(asset_ids)
+        shuffled = sorted(list(set(asset_ids))) # deterministic sort before shuffle
         rng.shuffle(shuffled)
 
         n = len(shuffled)
@@ -142,29 +186,54 @@ class EvaluationEngine:
                 real_count += 1
             filtered_annots.append(a)
 
+        # Compute reproducible manifest hash
+        manifest_hash = compute_manifest_hash(filtered_annots, config)
+
+        # Check whether this run contains simulated/mock predictions
+        has_simulated_predictions = any(p.get("is_simulated", True) for p in predictions) or len(predictions) == 0
+
         # Compute TP, FP, FN, TN across slices
         overall_tp, overall_fp, overall_fn, overall_tn = 0, 0, 0, 0
         equipment_slices: List[EquipmentSliceResult] = []
 
-        # Group by Equipment Family
-        family_groups: Dict[EquipmentFamily, List[Dict[str, Any]]] = {}
-        for fam in config.target_equipment_families:
-            family_groups[fam] = [a for a in filtered_annots if a.get("equipment_family") == fam.value]
-
         # Standard defect labels for confusion matrix
-        defect_labels = [d.value for d in [DefectCategory.CRACK, DefectCategory.PITTING, DefectCategory.EROSION, DefectCategory.DEPOSIT_FOULING, DefectCategory.OTHER_DEFECT]]
+        defect_labels = [
+            d.value for d in [
+                DefectCategory.CRACK,
+                DefectCategory.PITTING,
+                DefectCategory.EROSION,
+                DefectCategory.DEPOSIT_FOULING,
+                DefectCategory.OTHER_DEFECT
+            ]
+        ]
         cm_size = len(defect_labels)
         confusion_matrix = [[0 for _ in range(cm_size)] for _ in range(cm_size)]
 
-        for fam, fam_annots in family_groups.items():
+        # Group annotations by equipment family
+        for fam in config.target_equipment_families:
+            fam_annots = [a for a in filtered_annots if a.get("equipment_family") == fam.value]
             fam_tp, fam_fp, fam_fn, fam_tn = 0, 0, 0, 0
-            
+            iou_values: List[float] = []
+
             for a in fam_annots:
-                # Deterministic simulated match for verification baseline
-                has_pred = any(p.get("asset_id") == a.get("asset_id") and p.get("defect_category") == a.get("defect_category") for p in predictions)
-                if has_pred:
+                # Match prediction strictly by asset_id, frame_index, and defect_category
+                matching_preds = [
+                    p for p in predictions
+                    if p.get("asset_id") == a.get("asset_id")
+                    and p.get("frame_index", 0) == a.get("frame_index", 0)
+                    and p.get("defect_category") == a.get("defect_category")
+                ]
+
+                if matching_preds:
                     fam_tp += 1
                     overall_tp += 1
+
+                    pred_box = matching_preds[0].get("bbox") or matching_preds[0].get("candidate_bbox")
+                    annot_box = a.get("bbox") or a.get("bounding_box")
+                    if pred_box and annot_box:
+                        iou = compute_bounding_box_iou(pred_box, annot_box)
+                        iou_values.append(iou)
+
                     # Update confusion matrix diagonal
                     cat = a.get("defect_category")
                     if cat in defect_labels:
@@ -175,6 +244,10 @@ class EvaluationEngine:
                     overall_fn += 1
 
             slice_metric = compute_classification_metrics(fam_tp, fam_fp, fam_fn, fam_tn)
+
+            mean_iou_val = round(float(np.mean(iou_values)), 4) if len(iou_values) > 0 else None
+            loc_status = MetricStatus.VALID if mean_iou_val is not None else MetricStatus.UNDEFINED_ZERO_SUPPORT
+
             equipment_slices.append(
                 EquipmentSliceResult(
                     equipment_family=fam,
@@ -184,19 +257,26 @@ class EvaluationEngine:
                     is_synthetic=False,
                     classification=slice_metric,
                     localization=LocalizationMetric(
-                        mean_iou=0.78 if fam_tp > 0 else None,
-                        evaluated_objects_count=fam_tp,
-                        status=MetricStatus.VALID if fam_tp > 0 else MetricStatus.UNDEFINED_ZERO_SUPPORT
+                        mean_iou=mean_iou_val,
+                        evaluated_objects_count=len(iou_values),
+                        status=loc_status
                     )
                 )
             )
 
         overall_metrics = compute_classification_metrics(overall_tp, overall_fp, overall_fn, overall_tn)
 
+        limitations_list = [
+            "Evaluation pipeline validation mode. Metrics computed strictly from registered ground truth and candidate predictions.",
+            "Synthetic samples are segregated and excluded from real-world performance claims."
+        ]
+        if has_simulated_predictions:
+            limitations_list.append("Simulated baseline predictions present; results represent pipeline validation, NOT certified real model inference.")
+
         return EvaluationReportRecord(
             run_id=run_id,
             run_name=config.name,
-            dataset_manifest_hash=f"manifest_sha256_{uuid.uuid4().hex[:16]}",
+            dataset_manifest_hash=manifest_hash,
             total_assets_evaluated=len(set(a.get("asset_id") for a in filtered_annots)),
             total_samples_evaluated=len(filtered_annots),
             real_samples_count=real_count,
@@ -206,10 +286,7 @@ class EvaluationEngine:
             equipment_slices=equipment_slices,
             confusion_matrix_labels=defect_labels,
             confusion_matrix=confusion_matrix,
-            is_simulated_baseline=False,
-            limitations=[
-                "Mock predictions used for evaluation pipeline verification only.",
-                "Real model performance metrics will be populated when trained weights are benchmarked."
-            ],
+            is_simulated_baseline=has_simulated_predictions,
+            limitations=limitations_list,
             created_at=now
         )

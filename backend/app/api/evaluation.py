@@ -27,8 +27,11 @@ async def execute_evaluation_run(config: EvaluationRunConfig):
     predictions = [
         {
             "asset_id": f.get("asset_id"),
+            "frame_index": f.get("frame_index", 0),
             "defect_category": f.get("candidate_defect"),
-            "confidence": f.get("model_prediction_confidence")
+            "confidence": f.get("model_prediction_confidence"),
+            "bbox": f.get("candidate_bbox"),
+            "is_simulated": f.get("is_simulated", True)
         }
         for f in findings
     ]

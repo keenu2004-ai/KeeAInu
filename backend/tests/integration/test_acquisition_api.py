@@ -86,12 +86,29 @@ async def test_license_review_and_gate_enforcement():
         assert app_res.status_code == 200
         assert app_res.json()["license_status"] == "APPROVED_FOR_EVALUATION"
 
-        # 5. Acquire -> MUST succeed
+        # 5. Acquire public candidate -> MUST return MANUAL_ACTION_REQUIRED (no fake placeholders generated)
         acq_success = await client.post(f"/api/v1/acquisition/candidates/{candidate_id}/acquire", json=acq_payload)
         assert acq_success.status_code == 200
         acq_data = acq_success.json()
-        assert acq_data["status"] == "COMPLETED"
-        assert acq_data["acquired_assets_count"] >= 1
+        assert acq_data["status"] == "MANUAL_ACTION_REQUIRED"
+        assert acq_data["acquired_assets_count"] == 0
+        assert "unavailable" in acq_data["error_message"].lower() or "manual" in acq_data["error_message"].lower()
+
+        # 6. Test internal storage candidate -> Automated ingestion succeeds
+        internal_search = await client.post(
+            "/api/v1/acquisition/search",
+            json={"query": "internal", "target_domain": "PIPES_CHANNELS"}
+        )
+        int_candidates = internal_search.json()
+        int_cand = next((c for c in int_candidates if c["source_id"] == "internal_storage"), None)
+        if int_cand:
+            int_acq = await client.post(
+                f"/api/v1/acquisition/candidates/{int_cand['id']}/acquire",
+                json={"candidate_id": int_cand["id"], "max_files_limit": 5, "max_megabytes_limit": 50}
+            )
+            assert int_acq.status_code == 200
+            int_data = int_acq.json()
+            assert int_data["status"] == "COMPLETED"
 
 
 @pytest.mark.asyncio

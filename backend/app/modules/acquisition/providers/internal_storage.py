@@ -13,7 +13,9 @@ from backend.app.schemas.acquisition import (
     SearchCandidateQuery,
     SourceProviderCategory,
     CandidateAcquisitionStatus,
-    LicensePermissionStatus
+    LicensePermissionStatus,
+    DiscoveryVerificationStatus,
+    DownloadSupportStatus
 )
 from backend.app.modules.acquisition.providers.base import BaseSourceProvider
 from backend.app.modules.acquisition.relevance import evaluate_relevance
@@ -112,6 +114,8 @@ class InternalStorageProvider(BaseSourceProvider):
                     description=f"Authorized internal videoscope repository containing {file_count} assets ({total_bytes / (1024*1024):.1f} MB) in '{root_dir.name}'.",
                     limitations_notes="Internal confidential inspection media. Bound by enterprise data governance and export controls.",
                     acquisition_status=CandidateAcquisitionStatus.ACQUISITION_APPROVED,
+                    verification_status=DiscoveryVerificationStatus.LIVE_METADATA_VERIFIED,
+                    download_support=DownloadSupportStatus.DIRECT_DOWNLOAD_SUPPORTED,
                     created_at=now,
                     updated_at=now
                 )

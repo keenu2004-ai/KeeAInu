@@ -90,8 +90,8 @@ class CandidateFindingRecord(BaseModel):
     engineering_diagnosis: Optional[str] = None
     advisory_recommendation: Optional[str] = None
     reviewed_at: Optional[str] = None
-    created_at: str
-    updated_at: str
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
 
 
 class SubmitFindingDecisionRequest(BaseModel):
@@ -99,6 +99,7 @@ class SubmitFindingDecisionRequest(BaseModel):
     review_state: FindingReviewState
     severity: FindingSeverity = FindingSeverity.UNSPECIFIED
     reviewed_by: str = Field(..., min_length=1, description="Authorized inspector / reviewer name")
+    reviewer_role: Optional[str] = Field(None, description="Role of the inspector/reviewer submitting the decision")
     reviewer_rationale: str = Field(..., min_length=1, description="Reasoning and engineering evidence for the disposition")
     adjusted_defect_category: Optional[DefectCategory] = None
     adjusted_bbox: Optional[BoundingBox] = None

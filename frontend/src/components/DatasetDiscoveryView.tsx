@@ -224,7 +224,11 @@ export const DatasetDiscoveryView: React.FC = () => {
         max_megabytes_limit: 150,
         requested_by: reviewerName
       });
-      alert(`Acquisition complete! Acquired ${res.acquired_assets_count} assets into KeeAInu repository.`);
+      if (res.job_status === "MANUAL_ACTION_REQUIRED") {
+        alert(`Direct automated download is not supported for public catalog '${candidate.provider_name}'.\n\nInstructions: Download manually from canonical source (${candidate.canonical_url}) into data/internal_imports/ to ingest under verified provenance.`);
+      } else {
+        alert(`Acquisition complete! Acquired ${res.acquired_assets_count} assets into KeeAInu repository.`);
+      }
       await loadAssets();
       await loadProvidersAndCandidates();
     } catch (err) {
@@ -901,33 +905,63 @@ export const DatasetDiscoveryView: React.FC = () => {
                   <div>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "8px" }}>
                       <span style={{ fontSize: "0.75rem", color: "#38bdf8", fontWeight: "700" }}>{cand.provider_name}</span>
-                      <span
-                        style={{
-                          fontSize: "0.7rem",
-                          padding: "3px 8px",
-                          borderRadius: "4px",
-                          fontWeight: "700",
-                          backgroundColor:
-                            cand.license_status === "APPROVED_FOR_EVALUATION"
-                              ? "#065f46"
-                              : cand.license_status === "APPROVED_FOR_NONCOMMERCIAL_RESEARCH"
-                              ? "#0369a1"
-                              : cand.license_status === "REJECTED"
-                              ? "#7f1d1d"
-                              : "#854d0e",
-                          color: "#fff"
-                        }}
-                      >
-                        {cand.license_status}
-                      </span>
+                      <div style={{ display: "flex", gap: "6px" }}>
+                        {cand.verification_status && (
+                          <span
+                            style={{
+                              fontSize: "0.65rem",
+                              padding: "2px 6px",
+                              borderRadius: "4px",
+                              fontWeight: "700",
+                              backgroundColor:
+                                cand.verification_status === "LIVE_METADATA_VERIFIED"
+                                  ? "#065f46"
+                                  : cand.verification_status === "CURATED_LEAD_AWAITING_VERIFICATION"
+                                  ? "#1e3a8a"
+                                  : "#475569",
+                              color: "#fff"
+                            }}
+                          >
+                            {cand.verification_status === "LIVE_METADATA_VERIFIED"
+                              ? "LIVE VERIFIED"
+                              : cand.verification_status === "CURATED_LEAD_AWAITING_VERIFICATION"
+                              ? "CURATED LEAD"
+                              : cand.verification_status}
+                          </span>
+                        )}
+                        <span
+                          style={{
+                            fontSize: "0.65rem",
+                            padding: "2px 6px",
+                            borderRadius: "4px",
+                            fontWeight: "700",
+                            backgroundColor:
+                              cand.license_status === "APPROVED_FOR_EVALUATION"
+                                ? "#065f46"
+                                : cand.license_status === "APPROVED_FOR_NONCOMMERCIAL_RESEARCH"
+                                ? "#0369a1"
+                                : cand.license_status === "REJECTED"
+                                ? "#7f1d1d"
+                                : "#854d0e",
+                            color: "#fff"
+                          }}
+                        >
+                          {cand.license_status}
+                        </span>
+                      </div>
                     </div>
 
-                    <h3 style={{ fontSize: "1.05rem", fontWeight: "700", marginBottom: "8px", lineHeight: "1.3" }}>
+                    <h3 style={{ fontSize: "1.05rem", fontWeight: "700", marginBottom: "6px", lineHeight: "1.3" }}>
                       {cand.title}
                     </h3>
-                    <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginBottom: "12px" }}>
+                    <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginBottom: "8px" }}>
                       Publisher: <strong>{cand.publisher}</strong> | Domain: <strong>{cand.domain_tag}</strong>
                     </div>
+                    {cand.download_support && (
+                      <div style={{ fontSize: "0.75rem", color: cand.download_support === "DIRECT_DOWNLOAD_SUPPORTED" ? "#34d399" : "#fbbf24", marginBottom: "8px" }}>
+                        Acquisition: <strong>{cand.download_support === "DIRECT_DOWNLOAD_SUPPORTED" ? "Automated Pipeline" : "Manual Download Required"}</strong>
+                      </div>
+                    )}
 
                     <p style={{ fontSize: "0.85rem", color: "#cbd5e1", marginBottom: "14px", lineHeight: "1.4" }}>
                       {cand.description}

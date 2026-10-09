@@ -69,7 +69,7 @@ def test_can_acquire_candidate_gate_checks():
     # Unknown license blocked
     can_acq, reason = can_acquire_candidate(LicensePermissionStatus.LICENSE_UNKNOWN)
     assert can_acq is False
-    assert "reviewed and verified" in reason
+    assert "Download blocked" in reason
 
     # Rejected blocked
     can_acq, reason = can_acquire_candidate(LicensePermissionStatus.REJECTED)
@@ -82,3 +82,39 @@ def test_can_acquire_candidate_gate_checks():
     can_acq, reason = can_acquire_candidate(LicensePermissionStatus.APPROVED_FOR_NONCOMMERCIAL_RESEARCH, "COMMERCIAL_TRAINING")
     assert can_acq is False
     assert "Commercial training forbidden" in reason
+
+
+def test_fine_grained_license_permissions_by_intended_use():
+    """Verify separate authorization for metadata, download, evaluation, research, commercial training, and redistribution."""
+    from backend.app.modules.acquisition.license_gate import (
+        can_discover_metadata,
+        can_download_media,
+        can_use_for_evaluation,
+        can_use_for_noncommercial_research,
+        can_use_for_commercial_training,
+        can_redistribute,
+        evaluate_all_permissions
+    )
+
+    # 1. Unknown license: discovery ok, but everything else blocked
+    perms_unknown = evaluate_all_permissions(LicensePermissionStatus.LICENSE_UNKNOWN)
+    assert perms_unknown["discover_metadata"] is True
+    assert perms_unknown["download_media"] is False
+    assert perms_unknown["benchmark_evaluation"] is False
+    assert perms_unknown["commercial_training"] is False
+
+    # 2. Approved for noncommercial research (e.g. CC-BY-NC):
+    perms_nc = evaluate_all_permissions(LicensePermissionStatus.APPROVED_FOR_NONCOMMERCIAL_RESEARCH)
+    assert perms_nc["discover_metadata"] is True
+    assert perms_nc["download_media"] is True
+    assert perms_nc["benchmark_evaluation"] is True
+    assert perms_nc["noncommercial_research"] is True
+    assert perms_nc["commercial_training"] is False  # Must fail closed for commercial training
+
+    # 3. Approved for evaluation (e.g. MIT, CC0):
+    perms_full = evaluate_all_permissions(LicensePermissionStatus.APPROVED_FOR_EVALUATION)
+    assert perms_full["discover_metadata"] is True
+    assert perms_full["download_media"] is True
+    assert perms_full["benchmark_evaluation"] is True
+    assert perms_full["commercial_training"] is True
+

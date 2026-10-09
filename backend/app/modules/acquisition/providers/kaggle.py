@@ -8,7 +8,9 @@ from backend.app.schemas.acquisition import (
     DatasetCandidateRecord,
     SearchCandidateQuery,
     SourceProviderCategory,
-    CandidateAcquisitionStatus
+    CandidateAcquisitionStatus,
+    DiscoveryVerificationStatus,
+    DownloadSupportStatus
 )
 from backend.app.modules.acquisition.providers.base import BaseSourceProvider
 from backend.app.modules.acquisition.relevance import evaluate_relevance
@@ -132,6 +134,8 @@ class KaggleProvider(BaseSourceProvider):
                     description=item["description"],
                     limitations_notes=item["limitations_notes"],
                     acquisition_status=CandidateAcquisitionStatus.DISCOVERED,
+                    verification_status=DiscoveryVerificationStatus.CURATED_LEAD_AWAITING_VERIFICATION,
+                    download_support=DownloadSupportStatus.MANUAL_ACTION_REQUIRED,
                     created_at=now,
                     updated_at=now
                 )

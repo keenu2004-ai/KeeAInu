@@ -37,6 +37,7 @@ class ValidationStatus(str, Enum):
     MALFORMED = "MALFORMED"
     UNREADABLE = "UNREADABLE"
     CORRUPT = "CORRUPT"
+    PENDING = "PENDING"
 
 
 class TimestampProvenance(str, Enum):

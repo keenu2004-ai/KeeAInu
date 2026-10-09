@@ -903,6 +903,10 @@ class InspectionRepository:
 
     # --- Multi-Source Discovery & Controlled Acquisition Operations ---
 
+    def save_candidate(self, candidate_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Alias for upsert_candidate."""
+        return self.upsert_candidate(candidate_data)
+
     def upsert_candidate(self, candidate_data: Dict[str, Any]) -> Dict[str, Any]:
         """Insert or update a discovered candidate dataset record."""
         now = datetime.now(timezone.utc).isoformat()
