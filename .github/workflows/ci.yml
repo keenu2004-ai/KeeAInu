@@ -31,7 +31,7 @@ jobs:
 
       - name: Run Backend Tests
         run: |
-          python -m pytest backend/tests -v
+          python -m pytest backend/tests scripts/dataset_pipeline/test_audit_archive.py -v
 
   frontend-build:
     name: Frontend Build & Typecheck
