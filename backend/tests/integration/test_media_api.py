@@ -3,13 +3,15 @@
 from pathlib import Path
 import pytest
 from httpx import AsyncClient, ASGITransport
+from backend.app.core.config import settings
 from backend.app.main import app
 
 
 @pytest.fixture(scope="module")
 def sample_media_fixtures():
-    grid_path = Path("data/sample_fixtures/synthetic_still_grid.png")
-    video_path = Path("data/sample_fixtures/synthetic_test_video.mp4")
+    fixtures_dir = settings.DATA_DIR / "sample_fixtures"
+    grid_path = fixtures_dir / "synthetic_still_grid.png"
+    video_path = fixtures_dir / "synthetic_test_video.mp4"
     assert grid_path.exists(), "Sample still fixture must exist"
     assert video_path.exists(), "Sample video fixture must exist"
     return {"grid": grid_path, "video": video_path}

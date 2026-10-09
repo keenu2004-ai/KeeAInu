@@ -3,12 +3,13 @@
 from pathlib import Path
 import pytest
 
+from backend.app.core.config import settings
 from backend.app.core.security import calculate_sha256, is_path_safe
 from backend.app.modules.video.extractor import VideoFrameExtractor
 
 
 def test_original_video_remains_unmodified_during_extraction():
-    video_path = Path("data/sample_fixtures/synthetic_test_video.mp4").resolve()
+    video_path = (settings.DATA_DIR / "sample_fixtures" / "synthetic_test_video.mp4").resolve()
     assert video_path.exists(), "Sample fixture video must exist"
 
     # Compute digest prior to extraction
@@ -29,7 +30,7 @@ def test_original_video_remains_unmodified_during_extraction():
 
 
 def test_storage_path_sandboxing_rules():
-    base_vault = Path("data/media/raw").resolve()
+    base_vault = settings.RAW_MEDIA_DIR.resolve()
     
     valid_incoming_path = base_vault / "2026-10-09" / "session_123.mp4"
     assert is_path_safe(valid_incoming_path, base_vault) is True

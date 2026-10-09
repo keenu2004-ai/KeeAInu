@@ -8,7 +8,7 @@ on:
 
 jobs:
   backend-tests:
-    name: Backend Lint and Unit Tests
+    name: Backend Test Suite & Evidence Verification
     runs-on: ubuntu-latest
 
     steps:
@@ -20,12 +20,36 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install Dependencies
+      - name: Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r backend/requirements.txt
 
+      - name: Generate Deterministic Synthetic Fixtures
+        run: |
+          python scripts/generate_synthetic_fixtures.py
+
       - name: Run Backend Tests
         run: |
-          cd backend
-          pytest -v
+          python -m pytest backend/tests -v
+
+  frontend-build:
+    name: Frontend Build & Typecheck
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Frontend Dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run Frontend Build
+        working-directory: frontend
+        run: npm run build

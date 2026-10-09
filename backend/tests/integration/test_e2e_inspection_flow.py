@@ -3,6 +3,7 @@
 from pathlib import Path
 import pytest
 from httpx import AsyncClient, ASGITransport
+from backend.app.core.config import settings
 from backend.app.main import app
 from backend.app.core.security import calculate_sha256
 
@@ -21,7 +22,7 @@ async def test_full_e2e_recorded_media_inspection_flow():
     8. Re-fetch session & findings to verify persistence across restarts.
     9. Verify original media hash is unchanged (Evidence Immutability).
     """
-    video_path = Path("data/sample_fixtures/synthetic_test_video.mp4")
+    video_path = settings.DATA_DIR / "sample_fixtures" / "synthetic_test_video.mp4"
     assert video_path.exists(), "Synthetic test video must exist"
     original_sha256 = calculate_sha256(video_path)
 

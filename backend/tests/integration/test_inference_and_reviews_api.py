@@ -3,12 +3,13 @@
 from pathlib import Path
 import pytest
 from httpx import AsyncClient, ASGITransport
+from backend.app.core.config import settings
 from backend.app.main import app
 
 
 @pytest.mark.asyncio
 async def test_inference_and_review_lifecycle():
-    video_path = Path("data/sample_fixtures/synthetic_test_video.mp4")
+    video_path = settings.DATA_DIR / "sample_fixtures" / "synthetic_test_video.mp4"
     transport = ASGITransport(app=app)
     
     async with AsyncClient(transport=transport, base_url="http://test") as client:

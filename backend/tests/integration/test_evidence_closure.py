@@ -21,6 +21,23 @@ def _create_minimal_image_bytes(format_name: str, ext: str) -> bytes:
     return buf.getvalue()
 
 
+def _create_minimal_video_bytes(ext: str) -> bytes:
+    """Generate genuine minimal valid video bytes using OpenCV."""
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+    try:
+        fourcc = cv2.VideoWriter_fourcc(*"MJPG") if ext == ".avi" else cv2.VideoWriter_fourcc(*"mp4v")
+        writer = cv2.VideoWriter(str(tmp_path), fourcc, 10.0, (64, 64))
+        for _ in range(5):
+            writer.write(np.zeros((64, 64, 3), dtype=np.uint8))
+        writer.release()
+        return tmp_path.read_bytes()
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink()
+
+
 @pytest.mark.asyncio
 async def test_all_supported_image_formats_ingest_and_validate():
     """Verify that all advertised image formats (.png, .jpg, .jpeg, .bmp, .webp) upload and validate."""
@@ -53,6 +70,39 @@ async def test_all_supported_image_formats_ingest_and_validate():
 
             frame_res = await client.get(f"/api/v1/media/{media_data['id']}/frames/0")
             assert frame_res.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_all_supported_video_formats_ingest_and_validate():
+    """Verify that advertised video formats (.mp4, .avi) upload, validate metadata, and extract frames."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        s_res = await client.post("/api/v1/sessions", json={"title": "Video Formats Session", "inspector_name": "Auditor"})
+        session_id = s_res.json()["id"]
+
+        formats = [
+            (".mp4", "test_feed.mp4", "video/mp4"),
+            (".avi", "test_feed.avi", "video/avi"),
+        ]
+
+        for ext, filename, mime in formats:
+            vid_bytes = _create_minimal_video_bytes(ext)
+            files = {"file": (filename, vid_bytes, mime)}
+            res = await client.post("/api/v1/media/upload", data={"session_id": session_id}, files=files)
+            assert res.status_code == 201, f"Failed to upload {filename}: {res.text}"
+            media_data = res.json()
+            assert media_data["width"] == 64
+            assert media_data["height"] == 64
+            assert media_data["is_readable"] is True
+            assert media_data["total_frames"] >= 1
+
+            # Verify content retrieval and frame extraction
+            content_res = await client.get(f"/api/v1/media/{media_data['id']}/content")
+            assert content_res.status_code == 200
+
+            frame_res = await client.get(f"/api/v1/media/{media_data['id']}/frames/0")
+            assert frame_res.status_code == 200
+
 
 
 @pytest.mark.asyncio
@@ -129,7 +179,7 @@ async def test_tampered_video_rejected_at_all_consumption_points():
         s_res = await client.post("/api/v1/sessions", json={"title": "Video Tamper Test", "inspector_name": "Integrity Gate"})
         session_id = s_res.json()["id"]
 
-        video_path = Path("data/sample_fixtures/synthetic_test_video.mp4")
+        video_path = settings.DATA_DIR / "sample_fixtures" / "synthetic_test_video.mp4"
         files = {"file": ("inspection_feed.mp4", video_path.read_bytes(), "video/mp4")}
         up_res = await client.post("/api/v1/media/upload", data={"session_id": session_id}, files=files)
         assert up_res.status_code == 201

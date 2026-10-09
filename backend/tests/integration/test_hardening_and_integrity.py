@@ -4,6 +4,7 @@ from pathlib import Path
 import tempfile
 import pytest
 from httpx import AsyncClient, ASGITransport
+from backend.app.core.config import settings
 from backend.app.main import app
 from backend.app.modules.ingestion.validator import validate_media_file
 
@@ -35,7 +36,7 @@ async def test_evidence_integrity_hash_mismatch_detection():
         s_res = await client.post("/api/v1/sessions", json={"title": "Hash Integrity Test", "inspector_name": "Auditor"})
         session_id = s_res.json()["id"]
 
-        image_path = Path("data/sample_fixtures/synthetic_still_grid.png")
+        image_path = settings.DATA_DIR / "sample_fixtures" / "synthetic_still_grid.png"
         files = {"file": ("probe_grid.png", image_path.read_bytes(), "image/png")}
         up_res = await client.post("/api/v1/media/upload", data={"session_id": session_id}, files=files)
         assert up_res.status_code == 201
@@ -70,7 +71,7 @@ async def test_cross_session_inference_rejection():
         s_res_a = await client.post("/api/v1/sessions", json={"title": "Session A", "inspector_name": "Tester A"})
         session_a_id = s_res_a.json()["id"]
 
-        video_path = Path("data/sample_fixtures/synthetic_test_video.mp4")
+        video_path = settings.DATA_DIR / "sample_fixtures" / "synthetic_test_video.mp4"
         files = {"file": ("feed_a.mp4", video_path.read_bytes(), "video/mp4")}
         up_res = await client.post("/api/v1/media/upload", data={"session_id": session_a_id}, files=files)
         media_a_id = up_res.json()["id"]
