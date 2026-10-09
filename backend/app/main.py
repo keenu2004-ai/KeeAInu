@@ -12,14 +12,26 @@ app = FastAPI(
     redoc_url="/api/redoc"
 )
 
-# CORS Middleware configuration
+# CORS Middleware configuration (explicit allowed origins)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+from backend.app.api.sessions import router as sessions_router
+from backend.app.api.media import router as media_router
+from backend.app.api.inference import router as inference_router
+from backend.app.api.reviews import router as reviews_router
+
+# Include API v1 Routers
+app.include_router(sessions_router, prefix=settings.API_V1_PREFIX)
+app.include_router(media_router, prefix=settings.API_V1_PREFIX)
+app.include_router(inference_router, prefix=settings.API_V1_PREFIX)
+app.include_router(reviews_router, prefix=settings.API_V1_PREFIX)
 
 
 @app.get("/health", tags=["Health"])
@@ -43,6 +55,9 @@ async def system_status():
             "evidence_hashing": True,
             "ingestion_validator": True,
             "inference_engine_manager": True,
-            "mock_inference_engine": True
+            "mock_inference_engine": True,
+            "sqlite_repository": True,
+            "thumbnail_pipeline": True,
+            "review_workflow": True
         }
     }

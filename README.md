@@ -3,7 +3,7 @@
 > **AI-Assisted Industrial Visual Inspection & Videoscope Intelligence Platform**
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/status-Phase%200%2F1%20Foundation-green.svg)](docs/ROADMAP.md)
+[![Status](https://img.shields.io/badge/status-Phase%203%20MVP%20Complete-green.svg)](docs/ROADMAP.md)
 
 ---
 
@@ -25,54 +25,33 @@ KeeAInu is built on strict engineering principles:
 
 ---
 
-## 📂 Repository Structure
-
-```
-├── docs/                     # Governance, audit, architecture, and specifications
-│   ├── audit/                # Phase 0 repository & environment audits
-│   ├── PROJECT_CHARTER.md    # Mission, principles, and stakeholders
-│   ├── REQUIREMENTS.md       # Functional & non-functional requirements
-│   ├── ARCHITECTURE.md       # Modular Monolith architecture & data flows
-│   ├── DATA_MODEL.md         # Relational entity schemas & taxonomies
-│   ├── DECISIONS.md          # Architecture Decision Records (ADRs)
-│   ├── SECURITY.md           # Security baseline & input validation policies
-│   ├── TEST_STRATEGY.md      # Test pyramid & release acceptance gates
-│   ├── ROADMAP.md            # Phased milestone roadmap
-│   └── RISK_REGISTER.md      # Risk matrix & mitigation plans
-├── backend/                  # Python / FastAPI modular backend (Phase 1+)
-├── frontend/                 # React / TypeScript inspection portal (Phase 1+)
-├── data/                     # Local storage vault (raw media, artifacts, sqlite)
-├── AGENTS.md                 # Contributor and AI coding agent guidelines
-└── README.md                 # Project summary and quickstart
-```
-
----
-
-## 🚀 Quick Start (Development)
+## 🚀 Quick Start (Running Locally)
 
 ### Prerequisites
 - **Python**: >= 3.11
 - **Node.js**: >= 20
 - **Git**
 
-### Backend Setup
+### 1. Backend Server
 ```bash
-cd backend
-python -m venv .venv
-# On Windows:
-.venv\Scripts\activate
-# On Linux/macOS:
-# source .venv/bin/activate
-
-pip install -r requirements.txt
-pytest
+# In repository root:
+pip install -r backend/requirements.txt
+python -m uvicorn backend.app.main:app --reload --port 8000
 ```
+Interactive API Documentation: `http://localhost:8000/api/docs`
 
-### Frontend Setup
+### 2. Frontend Inspection Workspace
 ```bash
 cd frontend
 npm install
 npm run dev
+```
+Open your browser at `http://localhost:5173` to access the inspection workspace.
+
+### 3. Running Automated Tests
+```bash
+# Run all 39 unit, integration, and E2E lifecycle tests:
+python -m pytest backend/tests -v
 ```
 
 ---

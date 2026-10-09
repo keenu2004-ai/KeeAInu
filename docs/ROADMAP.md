@@ -24,12 +24,13 @@ This roadmap defines the verified milestone sequence for developing the KeeAInu 
 - [x] Frame extraction & video container metadata extraction harness (`backend/app/modules/video/extractor.py`).
 - [x] Deterministic test harness & evidence immutability verification suite.
 
-## Phase 3 — Recorded-Media Inspection MVP
-- [ ] Secure video & image ingestion pipeline with SHA-256 evidence hashing.
-- [ ] Fast frame extractor & thumbnail generator.
-- [ ] Pluggable `InferenceEngine` interface with deterministic `MockInferenceEngine`.
-- [ ] Frame-accurate web inspection viewport with timeline scrubber and canvas overlay.
-- [ ] Inspector finding review & verification workflow (`CONFIRMED`, `ADJUSTED`, `REJECTED`).
+## Phase 3 — Recorded-Media Inspection MVP (Completed)
+- [x] Secure video & image ingestion pipeline with SHA-256 evidence hashing.
+- [x] Fast frame extractor & bounded thumbnail generator.
+- [x] Pluggable `InferenceEngine` interface with deterministic `MockInferenceEngine`.
+- [x] Frame-accurate web inspection viewport with timeline scrubber and canvas overlay.
+- [x] Inspector finding review & verification workflow (`CONFIRMED`, `ADJUSTED`, `REJECTED`).
+- [x] SQLite-backed session, media, finding, and review persistence.
 
 ## Phase 4 — Real AI Defect Detection Baseline
 - [ ] Integrate lightweight real vision model (e.g. YOLO/ONNX defect detector).

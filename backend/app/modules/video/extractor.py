@@ -80,18 +80,19 @@ class VideoFrameExtractor:
         fourcc_int = int(self._cap.get(cv2.CAP_PROP_FOURCC))
         fourcc_str = "".join([chr((fourcc_int >> 8 * i) & 0xFF) for i in range(4)])
 
-        if fps <= 0.0:
-            fps = 30.0  # Fallback assumption for stream sources with 0 fps metadata
-            
-        duration = (total_frames / fps) if fps > 0 and total_frames > 0 else 0.0
-        is_readable = (width > 0 and height > 0 and total_frames > 0)
+        if fps <= 0.0 or total_frames <= 0 or width <= 0 or height <= 0:
+            duration = 0.0
+            is_readable = False
+        else:
+            duration = total_frames / fps
+            is_readable = True
 
         self._metadata = VideoMetadata(
             filename=self.video_path.name,
             width=width,
             height=height,
-            fps=round(fps, 2),
-            total_frames=total_frames,
+            fps=round(fps, 2) if fps > 0 else 0.0,
+            total_frames=total_frames if total_frames > 0 else 0,
             duration_seconds=round(duration, 3),
             fourcc=fourcc_str,
             is_readable=is_readable
@@ -111,11 +112,14 @@ class VideoFrameExtractor:
         Extract a single frame by index.
         Returns the BGR numpy array and frame metadata.
         """
+        if frame_index < 0:
+            raise IndexError(f"Frame index {frame_index} out of bounds (must be non-negative).")
+
         meta = self.get_metadata()
         if not meta.is_readable:
-            raise RuntimeError(f"Cannot extract frames: video is unreadable ({self.video_path.name})")
+            raise RuntimeError(f"Cannot extract frames: video is unreadable or has invalid metadata ({self.video_path.name})")
 
-        if frame_index < 0 or (meta.total_frames > 0 and frame_index >= meta.total_frames):
+        if meta.total_frames > 0 and frame_index >= meta.total_frames:
             raise IndexError(
                 f"Frame index {frame_index} out of bounds for video with {meta.total_frames} frames."
             )
@@ -123,23 +127,26 @@ class VideoFrameExtractor:
         self.open()
         assert self._cap is not None
 
-        # Set frame position
-        self._cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
-        ret, frame = self._cap.read()
-        
-        if not ret or frame is None:
-            raise RuntimeError(f"Decoder failed to read frame at index {frame_index}")
+        try:
+            # Set frame position
+            self._cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+            ret, frame = self._cap.read()
+            
+            if not ret or frame is None:
+                raise RuntimeError(f"Decoder failed to read frame at index {frame_index}")
 
-        h, w = frame.shape[:2]
-        timestamp_ms = self.calculate_timestamp_ms(frame_index, meta.fps)
+            h, w = frame.shape[:2]
+            timestamp_ms = self.calculate_timestamp_ms(frame_index, meta.fps)
 
-        frame_meta = FrameMetadata(
-            frame_index=frame_index,
-            timestamp_ms=timestamp_ms,
-            width=w,
-            height=h
-        )
-        return frame, frame_meta
+            frame_meta = FrameMetadata(
+                frame_index=frame_index,
+                timestamp_ms=timestamp_ms,
+                width=w,
+                height=h
+            )
+            return frame, frame_meta
+        except Exception:
+            raise
 
     def iter_frames(
         self,
@@ -149,6 +156,11 @@ class VideoFrameExtractor:
         """
         Iterate over frames sequentially without loading the entire video into RAM.
         """
+        if start_frame < 0:
+            raise ValueError(f"start_frame must be non-negative, got {start_frame}")
+        if max_frames is not None and max_frames < 0:
+            raise ValueError(f"max_frames must be non-negative, got {max_frames}")
+
         meta = self.get_metadata()
         if not meta.is_readable:
             raise RuntimeError(f"Cannot iterate frames: video is unreadable ({self.video_path.name})")
