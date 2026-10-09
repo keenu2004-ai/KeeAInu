@@ -548,7 +548,7 @@ class InspectionRepository:
         domain: Optional[str] = None,
         is_synthetic: Optional[bool] = None,
         skip: int = 0,
-        limit: int = 100
+        limit: int = 500
     ) -> List[Dict[str, Any]]:
         query = "SELECT * FROM dataset_assets WHERE 1=1"
         params: List[Any] = []
@@ -656,6 +656,10 @@ class InspectionRepository:
                 (asset_id,)
             )
             return [dict(row) for row in cursor.fetchall()]
+
+    def delete_samples_for_asset(self, asset_id: str) -> None:
+        with self._get_connection() as conn:
+            conn.execute("DELETE FROM dataset_samples WHERE asset_id = ?", (asset_id,))
 
     def update_sample_review(
         self,

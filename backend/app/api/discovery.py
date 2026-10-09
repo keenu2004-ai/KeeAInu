@@ -67,7 +67,7 @@ async def list_dataset_assets(
     domain: Optional[DomainCategory] = None,
     is_synthetic: Optional[bool] = None,
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=500)
+    limit: int = Query(500, ge=1, le=1000)
 ):
     """List discovered dataset assets with optional domain and synthetic filters."""
     domain_str = domain.value if domain else None

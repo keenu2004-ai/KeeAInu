@@ -203,3 +203,59 @@ async def test_discovery_security_and_traversal_rejection():
             json={"source_directory": "data/non_existent_folder_xyz"}
         )
         assert non_res.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_repeated_scan_idempotency_and_force_rescan():
+    """Verify that repeating scans without changes does not duplicate sample records, and force_rescan replaces them cleanly."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Initial scan
+        res1 = await client.post("/api/v1/discovery/scan", json={"sample_count_per_video": 3, "force_rescan": True})
+        assert res1.status_code == 200
+        assets1 = (await client.get("/api/v1/discovery/assets")).json()
+        target = next((a for a in assets1 if len(a["samples"]) > 0), None)
+        assert target is not None
+        initial_sample_count = len(target["samples"])
+
+        # Second scan without force_rescan
+        res2 = await client.post("/api/v1/discovery/scan", json={"sample_count_per_video": 3, "force_rescan": False})
+        assert res2.status_code == 200
+        asset_after_rescan = (await client.get(f"/api/v1/discovery/assets/{target['id']}")).json()
+        assert len(asset_after_rescan["samples"]) == initial_sample_count
+
+        # Third scan WITH force_rescan=True
+        res3 = await client.post("/api/v1/discovery/scan", json={"sample_count_per_video": 3, "force_rescan": True})
+        assert res3.status_code == 200
+        asset_after_force = (await client.get(f"/api/v1/discovery/assets/{target['id']}")).json()
+        # Verify samples count did not accumulate or double
+        assert len(asset_after_force["samples"]) == initial_sample_count
+
+
+@pytest.mark.asyncio
+async def test_provenance_strictly_by_directory_not_filename(tmp_path_factory):
+    """Verify that footage is classified as synthetic only via trusted directory provenance, not filename substrings."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Create a real footage file in source_footage with 'synth' in the name
+        source_dir = settings.SOURCE_FOOTAGE_DIR
+        source_dir.mkdir(parents=True, exist_ok=True)
+        test_file = source_dir / "synthetic_test_named_user_pipe.png"
+        
+        from PIL import Image
+        img = Image.new("RGB", (64, 64), color="blue")
+        img.save(test_file)
+
+        try:
+            scan_res = await client.post("/api/v1/discovery/scan", json={"force_rescan": True})
+            assert scan_res.status_code == 200
+            
+            assets = (await client.get("/api/v1/discovery/assets")).json()
+            user_asset = next((a for a in assets if a["filename"] == "synthetic_test_named_user_pipe.png"), None)
+            assert user_asset is not None
+            # Must be False because it is in source_footage, despite 'synthetic' in the filename!
+            assert user_asset["is_synthetic"] is False
+        finally:
+            if test_file.exists():
+                test_file.unlink()
+

@@ -80,11 +80,32 @@ class VideoFrameExtractor:
         fourcc_int = int(self._cap.get(cv2.CAP_PROP_FOURCC))
         fourcc_str = "".join([chr((fourcc_int >> 8 * i) & 0xFF) for i in range(4)])
 
-        if fps <= 0.0 or total_frames <= 0 or width <= 0 or height <= 0:
+        # If decoder properties failed to report dimensions or frame count, attempt probing
+        if width <= 0 or height <= 0 or total_frames <= 0:
+            self._cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            ret, test_frame = self._cap.read()
+            if ret and test_frame is not None:
+                h, w = test_frame.shape[:2]
+                if width <= 0:
+                    width = w
+                if height <= 0:
+                    height = h
+                if total_frames <= 0:
+                    # Count frames by sequential read
+                    frame_count = 1
+                    while True:
+                        r, _ = self._cap.read()
+                        if not r:
+                            break
+                        frame_count += 1
+                    total_frames = frame_count
+            self._cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+
+        if width <= 0 or height <= 0 or total_frames <= 0:
             duration = 0.0
             is_readable = False
         else:
-            duration = total_frames / fps
+            duration = (total_frames / fps) if fps > 0.0 else 0.0
             is_readable = True
 
         self._metadata = VideoMetadata(
