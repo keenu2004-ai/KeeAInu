@@ -128,6 +128,26 @@ def scan_and_profile_file(
     settings.SAMPLES_DIR.mkdir(parents=True, exist_ok=True)
     settings.CONTACT_SHEETS_DIR.mkdir(parents=True, exist_ok=True)
 
+    # Upsert initial asset record so foreign key constraints for dataset_samples are satisfied
+    repo.upsert_asset(
+        asset_id=asset_id,
+        source_path=str(resolved_path),
+        filename=filename,
+        asset_type=asset_type,
+        extension=suffix,
+        file_size_bytes=file_size,
+        sha256_hash=initial_sha256,
+        is_readable=False,
+        width=0,
+        height=0,
+        duration_seconds=0.0,
+        fps=0.0,
+        total_frames=0,
+        is_synthetic=is_synth,
+        validation_status="PENDING",
+        error_details=None
+    )
+
     extracted_frames_bgr: List[np.ndarray] = []
     extracted_frame_indices: List[int] = []
     sample_records: List[Dict[str, Any]] = []
