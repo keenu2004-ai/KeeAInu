@@ -46,10 +46,11 @@ def parse_detection_label(path: Path, class_count: int | None) -> list[str]:
             errors.append(f"line_{line_number}:class_id_out_of_range")
         if not all(math.isfinite(value) for value in coords):
             errors.append(f"line_{line_number}:non_finite_coordinate")
-        elif any(value < 0 or value > 1 for value in coords):
-            errors.append(f"line_{line_number}:coordinate_out_of_range")
-        elif coords[2] <= 0 or coords[3] <= 0:
-            errors.append(f"line_{line_number}:non_positive_box_size")
+        else:
+            if any(value < 0 or value > 1 for value in coords):
+                errors.append(f"line_{line_number}:coordinate_out_of_range")
+            if coords[2] <= 0 or coords[3] <= 0:
+                errors.append(f"line_{line_number}:non_positive_box_size")
     return errors
 
 def infer_split(path: Path, root: Path) -> str:
