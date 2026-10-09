@@ -72,7 +72,7 @@ def validate_dataset(root: Path, class_count: int | None = None) -> dict[str, An
     images = sorted(p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS)
     if not images:
         raise ValueError("No supported image files found under dataset root.")
-    label_files = sorted(p for p in root.rglob("*.txt") if p.is_file())
+    # Only treat text files inside conventional labels directories as label candidates;\n    # dataset READMEs and other documentation must not be counted as orphan labels.\n    label_files = sorted(p for p in root.rglob("*.txt") if p.is_file() and p.parent.name.lower() == "labels")
     labels_by_parent_stem: dict[tuple[Path, str], list[Path]] = defaultdict(list)
     for label in label_files:
         labels_by_parent_stem[(label.parent.resolve(), label.stem)].append(label)
@@ -140,7 +140,7 @@ def validate_dataset(root: Path, class_count: int | None = None) -> dict[str, An
         "split_image_counts": dict(sorted(split_counts.items())),
         "missing_label_count": len(missing_labels), "missing_label_images": missing_labels,
         "unpaired_label_count": len(unpaired), "unpaired_labels": unpaired,
-        "empty_label_count": empty_labels, "valid_box_row_count": box_count,
+        "empty_label_count": empty_labels, "detection_row_count": box_count,
         "class_ids_observed": sorted(class_ids), "label_error_count": len(errors), "label_errors": errors,
         "exact_duplicate_image_group_count": len(duplicates), "exact_duplicate_image_groups": duplicates,
         "cross_split_exact_duplicate_count": len(cross_split), "cross_split_exact_duplicates": cross_split,
