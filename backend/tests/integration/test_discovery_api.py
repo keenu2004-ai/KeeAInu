@@ -33,7 +33,7 @@ async def test_discovery_scan_and_inventory():
         # Find synthetic video asset
         video_asset = next((a for a in assets if a["filename"].startswith("synthetic_test_video")), None)
         assert video_asset is not None
-        assert video_asset["is_readable"] is True
+        assert video_asset["is_readable"] is True, f"Asset is not readable. Details: error_details={video_asset.get('error_details')}, validation_status={video_asset.get('validation_status')}, asset={video_asset}"
         assert video_asset["is_synthetic"] is True
         assert video_asset["width"] == 320
         assert video_asset["height"] == 240
