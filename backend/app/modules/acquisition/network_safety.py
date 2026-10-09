@@ -3,7 +3,7 @@
 import ipaddress
 import socket
 from urllib.parse import urlparse
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Dict
 import httpx
 
 
