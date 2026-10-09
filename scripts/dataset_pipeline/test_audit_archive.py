@@ -29,7 +29,8 @@ def test_audit_counts_images_and_annotation_hints(tmp_path: Path):
         str(archive_path), "test-dataset", "https://example.org/dataset", "pending"
     )
     assert report["image_candidate_count"] == 2
-    assert report["layout_assessment"]["has_txt_labels"] is True
+    assert report["layout_assessment"]["has_txt_files"] is True
+    assert report["layout_assessment"]["has_txt_label_candidates"] is True
     assert report["layout_assessment"]["split_directories_detected"] == ["train", "valid"]
     assert report["training_readiness"] == "NOT_ASSESSED"
     assert report["license_review_status"] == "pending"
@@ -53,3 +54,18 @@ def test_audit_report_serializes_to_json(tmp_path: Path):
         archive.writestr("images/frame.jpg", b"x")
     report = audit_archive(str(archive_path), "test", "https://example.org", "pending")
     json.dumps(report)
+
+
+
+def test_readme_txt_is_not_misclassified_as_label(tmp_path: Path):
+    archive_path = tmp_path / "readme-only.zip"
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr("images/frame1.jpg", b"fake-image-content")
+        archive.writestr("README.txt", "documentation only")
+    report = audit_archive(
+        str(archive_path), "readme-only", "https://example.org/dataset", "pending"
+    )
+    layout = report["layout_assessment"]
+    assert layout["has_txt_files"] is True
+    assert layout["has_txt_label_candidates"] is False
+    assert layout["annotation_format_hints"] == ["no-common-annotation-layout-detected"]
