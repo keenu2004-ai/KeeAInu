@@ -46,38 +46,61 @@ def safe_member_name(name: str) -> bool:
 
 def classify_layout(names: list[str]) -> dict[str, Any]:
     lowered = [n.lower() for n in names]
-    dirs = {PurePosixPath(n).parent.as_posix().lower() for n in lowered}
-    has_images = any(PurePosixPath(n).suffix in IMAGE_EXTENSIONS for n in lowered)
-    has_txt_labels = any(PurePosixPath(n).suffix == ".txt" for n in lowered)
-    has_xml_labels = any(PurePosixPath(n).suffix == ".xml" for n in lowered)
-    has_json = any(PurePosixPath(n).suffix == ".json" for n in lowered)
+    paths = [PurePosixPath(n) for n in lowered]
+    dirs = {path.parent.as_posix() for path in paths}
+    image_paths = {path.as_posix() for path in paths if path.suffix in IMAGE_EXTENSIONS}
+    image_stems_by_parent = {(path.parent.as_posix(), path.stem) for path in paths if path.suffix in IMAGE_EXTENSIONS}
+    has_images = bool(image_paths)
+    has_txt_files = any(path.suffix == ".txt" for path in paths)
+    label_dir_names = {"label", "labels", "annotation", "annotations"}
+    has_txt_label_candidates = any(
+        path.suffix == ".txt"
+        and (
+            any(part in label_dir_names for part in path.parent.parts)
+            or (path.parent.as_posix(), path.stem) in image_stems_by_parent
+        )
+        for path in paths
+    )
+    has_xml_files = any(path.suffix == ".xml" for path in paths)
+    has_json = any(path.suffix == ".json" for path in paths)
+    has_annotation_json_candidates = any(
+        path.suffix == ".json"
+        and (
+            any(part in label_dir_names or "mask" in part for part in path.parent.parts)
+            or any(token in path.name for token in ("annotation", "annotations", "coco", "instances_"))
+        )
+        for path in paths
+    )
     has_masks = any(
-        ("mask" in PurePosixPath(n).parts or "masks" in PurePosixPath(n).parts
-         or "segmentation" in PurePosixPath(n).parts)
-        for n in lowered
+        any(part in {"mask", "masks", "segmentation"} for part in path.parts)
+        for path in paths
     )
     split_dirs = sorted(
         split for split in ("train", "valid", "val", "test")
-        if any(re.search(rf"(^|/){split}(/|$)", d) for d in dirs)
+        if any(re.search(rf"(^|/){split}(/|$)", directory) for directory in dirs)
     )
     task_hints = []
-    if has_txt_labels or has_xml_labels:
-        task_hints.append("object-detection-or-classification-labels-possible")
-    if has_json:
-        task_hints.append("json-annotation-or-metadata-present")
+    if has_txt_label_candidates:
+        task_hints.append("txt-label-file-candidate-present")
+    if has_xml_files:
+        task_hints.append("xml-annotation-candidate-present")
+    if has_annotation_json_candidates:
+        task_hints.append("json-annotation-candidate-present")
     if has_masks:
         task_hints.append("mask-like-paths-present")
     if not task_hints:
-        task_hints.append("no-common-sidecar-annotation-format-detected")
+        task_hints.append("no-common-annotation-layout-detected")
     return {
         "has_images": has_images,
-        "has_txt_labels": has_txt_labels,
-        "has_xml_labels": has_xml_labels,
+        "has_txt_files": has_txt_files,
+        "has_txt_label_candidates": has_txt_label_candidates,
+        "has_xml_files": has_xml_files,
         "has_json_files": has_json,
+        "has_annotation_json_candidates": has_annotation_json_candidates,
         "has_mask_like_paths": has_masks,
         "split_directories_detected": split_dirs,
         "annotation_format_hints": task_hints,
-        "warning": "File presence and folder names do not validate annotation content or correctness."
+        "warning": "These are filename/layout heuristics only; they do not validate annotation contents or correctness."
     }
 
 
