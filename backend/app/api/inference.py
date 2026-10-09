@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from backend.app.core.config import settings
-from backend.app.core.security import is_path_safe
+from backend.app.core.security import is_path_safe, verify_and_resolve_media_file
 from backend.app.db.repository import repo
 from backend.app.modules.inference.mock_engine import MockInferenceEngine
 from backend.app.modules.video.extractor import VideoFrameExtractor
@@ -30,7 +30,7 @@ class AnalyzeFrameRequest(BaseModel):
 async def analyze_frame(req: AnalyzeFrameRequest):
     """
     Run simulated defect candidate analysis on a selected media frame.
-    Enforces session/media association integrity and explicit simulation labeling.
+    Enforces session/media association integrity, evidence hash verification, and explicit simulation labeling.
     """
     session = repo.get_session(req.session_id)
     if not session:
@@ -53,9 +53,7 @@ async def analyze_frame(req: AnalyzeFrameRequest):
             detail=f"Integrity error: Media '{req.media_id}' does not belong to session '{req.session_id}'."
         )
 
-    file_path = Path(media["file_path"]).resolve()
-    if not file_path.exists() or not is_path_safe(file_path, settings.RAW_MEDIA_DIR):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media file missing from storage vault.")
+    file_path = verify_and_resolve_media_file(media, settings.RAW_MEDIA_DIR)
 
     frame_bytes = b""
     timestamp_ms = 0.0

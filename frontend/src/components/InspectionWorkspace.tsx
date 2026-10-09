@@ -163,7 +163,7 @@ export const InspectionWorkspace: React.FC<InspectionWorkspaceProps> = ({
               {activeMedia && (
                 <div style={{ fontSize: "0.75rem", color: "#94a3b8", display: "flex", gap: "12px", fontFamily: "var(--font-mono)" }}>
                   <span>{activeMedia.width}x{activeMedia.height}</span>
-                  <span>{activeMedia.fps} FPS</span>
+                  <span>{activeMedia.fps && activeMedia.fps > 0 ? `${activeMedia.fps} FPS` : "FPS: N/A"}</span>
                   <span>SHA-256: {activeMedia.sha256_hash.substring(0, 10)}...</span>
                 </div>
               )}
@@ -198,7 +198,12 @@ export const InspectionWorkspace: React.FC<InspectionWorkspaceProps> = ({
             </div>
             {activeMedia && (
               <span className="time-display">
-                Frame {currentFrame} | TS: {((currentFrame / (activeMedia.fps || 30)) * 1000).toFixed(1)}ms
+                Frame {currentFrame}
+                {activeMedia.fps && activeMedia.fps > 0 ? (
+                  <> | TS: ~{((currentFrame / activeMedia.fps) * 1000).toFixed(1)}ms <span style={{ fontSize: "0.75em", opacity: 0.8 }}>(Nominal)</span></>
+                ) : (
+                  <> | TS: N/A</>
+                )}
               </span>
             )}
           </div>

@@ -29,7 +29,7 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
     <div className="timeline-container">
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem", color: "#94a3b8" }}>
         <span>Frame {currentFrame} / {totalFrames - 1}</span>
-        <span>Duration: {durationSeconds.toFixed(2)}s ({fps.toFixed(1)} FPS)</span>
+        <span>Duration: {durationSeconds > 0 ? `${durationSeconds.toFixed(2)}s` : "N/A"} ({fps > 0 ? `${fps.toFixed(1)} FPS` : "FPS: N/A"})</span>
       </div>
 
       <input

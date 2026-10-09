@@ -33,3 +33,52 @@ def test_is_path_safe():
     assert is_path_safe(safe_child, base_dir) is True
     assert is_path_safe(unsafe_parent, base_dir) is False
     assert is_path_safe(traversal_attempt, base_dir) is False
+
+
+def test_verify_and_resolve_media_file_success():
+    from backend.app.core.security import verify_and_resolve_media_file
+    with tempfile.TemporaryDirectory() as tmpdir:
+        vault = Path(tmpdir)
+        test_file = vault / "sample.png"
+        content = b"sample_png_bytes"
+        test_file.write_bytes(content)
+        digest = calculate_sha256(content)
+
+        record = {"file_path": str(test_file), "sha256_hash": digest}
+        resolved = verify_and_resolve_media_file(record, vault)
+        assert resolved == test_file.resolve()
+
+
+def test_verify_and_resolve_media_file_tampered():
+    from backend.app.core.security import verify_and_resolve_media_file
+    from fastapi import HTTPException
+    with tempfile.TemporaryDirectory() as tmpdir:
+        vault = Path(tmpdir)
+        test_file = vault / "sample.png"
+        test_file.write_bytes(b"sample_png_bytes")
+
+        record = {"file_path": str(test_file), "sha256_hash": "wrong_hash_123"}
+        with pytest.raises(HTTPException) as exc_info:
+            verify_and_resolve_media_file(record, vault)
+        assert exc_info.value.status_code == 409
+
+
+def test_verify_and_resolve_media_file_missing_and_traversal():
+    from backend.app.core.security import verify_and_resolve_media_file
+    from fastapi import HTTPException
+    with tempfile.TemporaryDirectory() as tmpdir:
+        vault = Path(tmpdir) / "vault"
+        vault.mkdir()
+        outside = Path(tmpdir) / "outside.txt"
+        outside.write_bytes(b"secret")
+
+        # Missing file
+        with pytest.raises(HTTPException) as exc_1:
+            verify_and_resolve_media_file({"file_path": str(vault / "nonexistent.png"), "sha256_hash": "abc"}, vault)
+        assert exc_1.value.status_code == 404
+
+        # Traversal file (outside vault)
+        with pytest.raises(HTTPException) as exc_2:
+            verify_and_resolve_media_file({"file_path": str(outside), "sha256_hash": calculate_sha256(b"secret")}, vault)
+        assert exc_2.value.status_code == 404
+

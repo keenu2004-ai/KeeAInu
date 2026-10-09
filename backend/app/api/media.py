@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, Response
 from PIL import Image
 
 from backend.app.core.config import settings
-from backend.app.core.security import calculate_sha256, is_path_safe
+from backend.app.core.security import calculate_sha256, is_path_safe, verify_and_resolve_media_file
 from backend.app.db.repository import repo
 from backend.app.modules.ingestion.validator import (
     validate_media_file,
@@ -199,17 +199,7 @@ async def get_media_content(media_id: str):
     if not media:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Media '{media_id}' not found.")
 
-    file_path = Path(media["file_path"]).resolve()
-    if not file_path.exists() or not is_path_safe(file_path, settings.RAW_MEDIA_DIR):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Stored media file missing from vault.")
-
-    # Cryptographic integrity check
-    current_hash = calculate_sha256(file_path)
-    if current_hash != media["sha256_hash"]:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Evidence integrity failure: file hash does not match registered evidence digest."
-        )
+    file_path = verify_and_resolve_media_file(media, settings.RAW_MEDIA_DIR)
 
     return FileResponse(
         path=file_path,
@@ -243,7 +233,10 @@ async def get_thumbnail_content(media_id: str, thumb_id: str):
 
 @router.get("/{media_id}/frames/{frame_index}")
 async def get_extracted_frame(media_id: str, frame_index: int):
-    """Extract and return a specific video frame as an image."""
+    """
+    Extract and return a specific video frame as an image (or frame 0 for still images).
+    Enforces on-demand SHA-256 evidence integrity check before extraction.
+    """
     if frame_index < 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Frame index must be non-negative.")
 
@@ -251,9 +244,7 @@ async def get_extracted_frame(media_id: str, frame_index: int):
     if not media:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Media '{media_id}' not found.")
 
-    file_path = Path(media["file_path"]).resolve()
-    if not file_path.exists() or not is_path_safe(file_path, settings.RAW_MEDIA_DIR):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source media missing from vault.")
+    file_path = verify_and_resolve_media_file(media, settings.RAW_MEDIA_DIR)
 
     if not media["media_type"].startswith("video/"):
         # For still images, serve the image directly on frame_index 0
