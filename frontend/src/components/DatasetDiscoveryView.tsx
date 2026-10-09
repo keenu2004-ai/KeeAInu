@@ -9,7 +9,11 @@ import {
   Sliders,
   Download,
   Info,
-  FolderOpen
+  FolderOpen,
+  Globe,
+  ShieldCheck,
+  History,
+  Database
 } from "lucide-react";
 import {
   AssetRecord,
@@ -19,6 +23,12 @@ import {
   DiscoveryReport
 } from "../types/discovery";
 import {
+  SourceProviderInfo,
+  DatasetCandidateRecord,
+  LicensePermissionStatus,
+  AcquisitionAuditEvent
+} from "../types/acquisition";
+import {
   fetchDiscoveredAssets,
   triggerDiscoveryScan,
   updateAssetDomain,
@@ -26,10 +36,20 @@ import {
   fetchDiscoveryReport,
   getContactSheetUrl,
   getSampleImageUrl,
-  getManifestUrl
+  getManifestUrl,
+  fetchSourceProviders,
+  searchDatasetCandidates,
+  fetchDatasetCandidates,
+  submitLicenseReview,
+  acquireDatasetCandidate,
+  generateSyntheticMedia,
+  fetchAcquisitionAuditTrail
 } from "../services/api";
 
 export const DatasetDiscoveryView: React.FC = () => {
+  const [activeTab, setActiveTab] = useState<"inventory" | "catalog" | "licenses" | "synthetic" | "audit">("inventory");
+
+  // Local Footage Inventory states
   const [assets, setAssets] = useState<AssetRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -37,789 +57,1342 @@ export const DatasetDiscoveryView: React.FC = () => {
   const [report, setReport] = useState<DiscoveryReport | null>(null);
   const [isReportOpen, setIsReportOpen] = useState(false);
 
-  // Filter states
+  // Filter states for inventory
   const [domainFilter, setDomainFilter] = useState<string>("ALL");
   const [provenanceFilter, setProvenanceFilter] = useState<string>("ALL");
   const [customDir, setCustomDir] = useState<string>("");
-  const [sampleCount, setSampleCount] = useState<number>(5);
-  const [reviewerName, setReviewerName] = useState<string>("Inspector (NDT)");
+  const sampleCount = 5;
+  const reviewerName = "Inspector (NDT)";
+
+  // Catalog Discovery states
+  const [providers, setProviders] = useState<SourceProviderInfo[]>([]);
+  const [selectedProviders, setSelectedProviders] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState<string>("borescope pipe turbine crack");
+  const [targetSearchDomain, setTargetSearchDomain] = useState<string>("PIPES_CHANNELS");
+  const [directVideoscopeOnly, setDirectVideoscopeOnly] = useState<boolean>(false);
+  const [candidates, setCandidates] = useState<DatasetCandidateRecord[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [selectedCandidate, setSelectedCandidate] = useState<DatasetCandidateRecord | null>(null);
+  const [isRelevanceModalOpen, setIsRelevanceModalOpen] = useState(false);
+
+  // License Review modal state
+  const [licenseModalCandidate, setLicenseModalCandidate] = useState<DatasetCandidateRecord | null>(null);
+  const [targetLicenseStatus, setTargetLicenseStatus] = useState<LicensePermissionStatus>("APPROVED_FOR_EVALUATION");
+  const [targetCommRights, setTargetCommRights] = useState<"ALLOWED" | "FORBIDDEN" | "REVIEW_REQUIRED">("ALLOWED");
+  const [licenseNotes, setLicenseNotes] = useState<string>("");
+  const [complianceReviewer, setComplianceReviewer] = useState<string>("Compliance Officer");
+
+  // Synthetic Studio states
+  const [synthDomain, setSynthDomain] = useState<"MECHANICAL" | "PIPES_CHANNELS" | "MOULD_CAVITIES">("PIPES_CHANNELS");
+  const [synthDefect, setSynthDefect] = useState<"CRACK" | "CORROSION_PIT" | "EROSION" | "DEPOSIT">("CRACK");
+  const [synthCount, setSynthCount] = useState<number>(3);
+  const [lightingVar, setLightingVar] = useState<number>(0.2);
+  const [noiseVar, setNoiseVar] = useState<number>(0.1);
+  const [blurVar, setBlurVar] = useState<number>(0.0);
+  const [synthSeed, setSynthSeed] = useState<number>(42);
+  const [generatingSynth, setGeneratingSynth] = useState(false);
+
+  // Audit trail state
+  const [auditEvents, setAuditEvents] = useState<AcquisitionAuditEvent[]>([]);
+  const [loadingAudit, setLoadingAudit] = useState(false);
 
   const loadAssets = async () => {
     try {
       setLoading(true);
       const params: any = {};
       if (domainFilter !== "ALL") params.domain = domainFilter;
-      if (provenanceFilter === "REAL") params.is_synthetic = false;
       if (provenanceFilter === "SYNTHETIC") params.is_synthetic = true;
+      if (provenanceFilter === "REAL") params.is_synthetic = false;
 
       const data = await fetchDiscoveredAssets(params);
       setAssets(data);
-
-      const rep = await fetchDiscoveryReport();
-      setReport(rep);
-    } catch (err: any) {
-      console.error("Failed to load discovery assets:", err);
+      if (data.length > 0 && !selectedAsset) {
+        setSelectedAsset(data[0]);
+      }
+    } catch (err) {
+      console.error(err);
     } finally {
       setLoading(false);
     }
   };
 
+  const loadProvidersAndCandidates = async () => {
+    try {
+      const provs = await fetchSourceProviders();
+      setProviders(provs);
+      const cands = await fetchDatasetCandidates();
+      setCandidates(cands);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const loadAuditTrail = async () => {
+    try {
+      setLoadingAudit(true);
+      const events = await fetchAcquisitionAuditTrail();
+      setAuditEvents(events);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingAudit(false);
+    }
+  };
+
   useEffect(() => {
     loadAssets();
+    loadProvidersAndCandidates();
   }, [domainFilter, provenanceFilter]);
 
-  const handleRunScan = async (force: boolean = false) => {
+  useEffect(() => {
+    if (activeTab === "audit") {
+      loadAuditTrail();
+    }
+  }, [activeTab]);
+
+  const handleScan = async (forceRescan: boolean = false) => {
     try {
       setScanning(true);
       await triggerDiscoveryScan({
-        source_directory: customDir.trim() || undefined,
+        source_directory: customDir ? customDir : undefined,
         sample_count_per_video: sampleCount,
-        force_rescan: force,
+        force_rescan: forceRescan
       });
       await loadAssets();
-    } catch (err: any) {
-      alert(`Scan failed: ${err.message}`);
+    } catch (err) {
+      alert(`Scan failed: ${err}`);
     } finally {
       setScanning(false);
     }
   };
 
-  const handleDomainChange = async (
-    assetId: string,
-    domain: DomainCategory,
-    confidence: DomainConfidence = "PROVISIONAL",
-    notes: string = ""
-  ) => {
+  const handleCatalogSearch = async () => {
     try {
-      const updated = await updateAssetDomain(assetId, {
-        domain_assignment: domain,
-        domain_confidence: confidence,
-        domain_notes: notes,
-        reviewed_by: reviewerName,
+      setSearching(true);
+      const results = await searchDatasetCandidates({
+        query: searchQuery,
+        target_domain: targetSearchDomain,
+        provider_ids: selectedProviders.length > 0 ? selectedProviders : undefined,
+        direct_videoscope_only: directVideoscopeOnly,
+        max_results_per_provider: 10
       });
-      setAssets((prev) => prev.map((a) => (a.id === assetId ? updated : a)));
-      if (selectedAsset?.id === assetId) {
-        setSelectedAsset(updated);
-      }
-      const rep = await fetchDiscoveryReport();
-      setReport(rep);
-    } catch (err: any) {
-      alert(`Failed to update domain: ${err.message}`);
+      setCandidates(results);
+    } catch (err) {
+      alert(`Search error: ${err}`);
+    } finally {
+      setSearching(false);
     }
   };
 
-  const handleSampleReviewChange = async (
-    sampleId: string,
-    status: SampleReviewStatus,
-    category?: string,
-    notes?: string
-  ) => {
+  const handleOpenLicenseModal = (candidate: DatasetCandidateRecord) => {
+    setLicenseModalCandidate(candidate);
+    setTargetLicenseStatus(candidate.license_status);
+    setTargetCommRights(candidate.commercial_use_allowed ? "ALLOWED" : "FORBIDDEN");
+    setLicenseNotes(candidate.limitations_notes || "");
+  };
+
+  const handleSaveLicenseReview = async () => {
+    if (!licenseModalCandidate) return;
+    try {
+      const updated = await submitLicenseReview(licenseModalCandidate.id, {
+        license_status: targetLicenseStatus,
+        commercial_rights_status: targetCommRights,
+        license_notes: licenseNotes,
+        reviewed_by: complianceReviewer
+      });
+      setCandidates(candidates.map(c => (c.id === updated.id ? updated : c)));
+      setLicenseModalCandidate(null);
+      alert(`License review recorded. Updated permission state: ${updated.license_status}`);
+    } catch (err) {
+      alert(`License review failed: ${err}`);
+    }
+  };
+
+  const handleAcquireCandidate = async (candidate: DatasetCandidateRecord) => {
+    try {
+      const res = await acquireDatasetCandidate(candidate.id, {
+        candidate_id: candidate.id,
+        max_files_limit: 10,
+        max_megabytes_limit: 150,
+        requested_by: reviewerName
+      });
+      alert(`Acquisition complete! Acquired ${res.acquired_assets_count} assets into KeeAInu repository.`);
+      await loadAssets();
+      await loadProvidersAndCandidates();
+    } catch (err) {
+      alert(`Acquisition blocked: ${err}`);
+    }
+  };
+
+  const handleGenerateSynthetic = async () => {
+    try {
+      setGeneratingSynth(true);
+      const res = await generateSyntheticMedia({
+        generation_type: "PROCEDURAL_SURFACE",
+        target_domain: synthDomain,
+        defect_type: synthDefect,
+        count: synthCount,
+        lighting_variation: lightingVar,
+        noise_level: noiseVar,
+        blur_level: blurVar,
+        random_seed: synthSeed,
+        requested_by: reviewerName
+      });
+      alert(`Generated ${res.generated_count} synthetic assets with verifiable provenance links!`);
+      await loadAssets();
+      setActiveTab("inventory");
+    } catch (err) {
+      alert(`Synthetic generation failed: ${err}`);
+    } finally {
+      setGeneratingSynth(false);
+    }
+  };
+
+  const handleUpdateDomain = async (domain: DomainCategory, confidence: DomainConfidence) => {
+    if (!selectedAsset) return;
+    try {
+      const updated = await updateAssetDomain(selectedAsset.id, {
+        domain_assignment: domain,
+        domain_confidence: confidence,
+        domain_notes: `Assigned via Discovery Workspace by ${reviewerName}`,
+        reviewed_by: reviewerName
+      });
+      setSelectedAsset(updated);
+      setAssets(assets.map(a => (a.id === updated.id ? updated : a)));
+    } catch (err) {
+      alert(`Failed to update domain: ${err}`);
+    }
+  };
+
+  const handleUpdateSampleReview = async (sampleId: string, status: SampleReviewStatus, category?: string) => {
     try {
       const updatedSample = await updateSampleReview(sampleId, {
         review_status: status,
         suspected_category: category,
-        reviewer_notes: notes,
-        reviewed_by: reviewerName,
+        reviewed_by: reviewerName
       });
-
       if (selectedAsset) {
-        const updatedSamples = selectedAsset.samples.map((s) =>
-          s.id === sampleId ? updatedSample : s
-        );
+        const updatedSamples = selectedAsset.samples.map(s => (s.id === updatedSample.id ? updatedSample : s));
         setSelectedAsset({ ...selectedAsset, samples: updatedSamples });
       }
-
-      setAssets((prev) =>
-        prev.map((a) => {
-          if (a.id === selectedAsset?.id) {
-            return {
-              ...a,
-              samples: a.samples.map((s) => (s.id === sampleId ? updatedSample : s)),
-            };
-          }
-          return a;
-        })
-      );
-
-      const rep = await fetchDiscoveryReport();
-      setReport(rep);
-    } catch (err: any) {
-      alert(`Failed to update sample review: ${err.message}`);
+    } catch (err) {
+      alert(`Failed to update sample review: ${err}`);
     }
   };
 
-  const getDomainBadgeColor = (dom: string) => {
-    switch (dom) {
-      case "MECHANICAL":
-        return "#3b82f6";
-      case "PIPES_CHANNELS":
-        return "#10b981";
-      case "MOULD_CAVITIES":
-        return "#8b5cf6";
-      case "OTHER":
-        return "#f59e0b";
-      default:
-        return "#64748b";
-    }
-  };
-
-  const getReviewBadgeStyle = (status: SampleReviewStatus) => {
-    switch (status) {
-      case "CONFIRMED_DEFECT":
-        return { background: "rgba(239, 68, 68, 0.2)", color: "#ef4444", border: "1px solid #ef4444" };
-      case "SUSPECTED_ANOMALY":
-        return { background: "rgba(245, 158, 11, 0.2)", color: "#f59e0b", border: "1px solid #f59e0b" };
-      case "NO_VISIBLE_DEFECT":
-        return { background: "rgba(16, 185, 129, 0.2)", color: "#10b981", border: "1px solid #10b981" };
-      case "UNCERTAIN_NEEDS_EXPERT":
-        return { background: "rgba(139, 92, 246, 0.2)", color: "#8b5cf6", border: "1px solid #8b5cf6" };
-      case "UNUSABLE":
-        return { background: "rgba(100, 116, 139, 0.2)", color: "#94a3b8", border: "1px solid #64748b" };
-      default:
-        return { background: "rgba(51, 65, 85, 0.4)", color: "#cbd5e1", border: "1px solid #475569" };
+  const openReport = async () => {
+    try {
+      const data = await fetchDiscoveryReport();
+      setReport(data);
+      setIsReportOpen(true);
+    } catch (err) {
+      alert(`Failed to fetch report: ${err}`);
     }
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-      {/* Top Banner & Stat Cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "12px" }}>
-        <div className="card" style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "6px" }}>
-          <span style={{ fontSize: "0.8rem", color: "#94a3b8", textTransform: "uppercase" }}>Discovered Assets</span>
-          <span style={{ fontSize: "1.8rem", fontWeight: "800", color: "#06b6d4" }}>{report?.total_assets ?? 0}</span>
-          <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
-            {report?.real_assets_count ?? 0} Real Vault | {report?.synthetic_assets_count ?? 0} Synthetic
-          </span>
-        </div>
-
-        <div className="card" style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "6px" }}>
-          <span style={{ fontSize: "0.8rem", color: "#94a3b8", textTransform: "uppercase" }}>Metadata Integrity</span>
-          <span style={{ fontSize: "1.8rem", fontWeight: "800", color: "#10b981" }}>
-            {report?.metadata_completeness_percent ?? 0}%
-          </span>
-          <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
-            {report?.readable_assets_count ?? 0} Readable | {report?.unreadable_assets_count ?? 0} Unreadable
-          </span>
-        </div>
-
-        <div className="card" style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "6px" }}>
-          <span style={{ fontSize: "0.8rem", color: "#94a3b8", textTransform: "uppercase" }}>Samples Profiled</span>
-          <span style={{ fontSize: "1.8rem", fontWeight: "800", color: "#8b5cf6" }}>
-            {report?.total_samples_extracted ?? 0}
-          </span>
-          <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
-            Avg Sharpness: {report?.average_sharpness ?? 0}
-          </span>
-        </div>
-
-        <div className="card" style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "6px" }}>
-          <span style={{ fontSize: "0.8rem", color: "#94a3b8", textTransform: "uppercase" }}>Domain Triage</span>
-          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "4px" }}>
-            {report && Object.entries(report.domain_breakdown).map(([dom, count]) => (
-              <span
-                key={dom}
-                style={{
-                  fontSize: "0.7rem",
-                  padding: "2px 6px",
-                  borderRadius: "4px",
-                  background: "var(--bg-card-hover)",
-                  color: getDomainBadgeColor(dom),
-                  fontWeight: "600"
-                }}
-              >
-                {dom}: {count}
-              </span>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Action Controls & Scanner Toolbar */}
-      <div className="card" style={{ padding: "16px", display: "flex", flexWrap: "wrap", gap: "12px", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            <FolderOpen size={16} color="#06b6d4" />
-            <input
-              type="text"
-              placeholder="Source dir (e.g. data/source_footage)"
-              value={customDir}
-              onChange={(e) => setCustomDir(e.target.value)}
-              className="form-control"
-              style={{ fontSize: "0.8rem", width: "240px", padding: "6px 10px" }}
-            />
+    <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 64px)", backgroundColor: "#0b0f19", color: "#f3f4f6" }}>
+      {/* Top Discovery & Acquisition Navigation Bar */}
+      <div style={{ padding: "12px 24px", borderBottom: "1px solid #1f293d", display: "flex", justifyContent: "space-between", alignItems: "center", backgroundColor: "#0e1424" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <Database size={22} color="#38bdf8" />
+            <h2 style={{ fontSize: "1.2rem", fontWeight: "700", letterSpacing: "0.5px", margin: 0 }}>
+              KeeAInu Discovery & Acquisition Hub
+            </h2>
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            <Sliders size={14} color="#94a3b8" />
-            <span style={{ fontSize: "0.8rem", color: "#94a3b8" }}>Samples/Video:</span>
-            <select
-              value={sampleCount}
-              onChange={(e) => setSampleCount(parseInt(e.target.value, 10))}
-              className="form-select"
-              style={{ fontSize: "0.8rem", padding: "6px 10px" }}
+          <div style={{ display: "flex", gap: "4px", backgroundColor: "#161f36", padding: "4px", borderRadius: "8px" }}>
+            <button
+              onClick={() => setActiveTab("inventory")}
+              style={{
+                padding: "6px 14px",
+                borderRadius: "6px",
+                border: "none",
+                cursor: "pointer",
+                fontWeight: "600",
+                fontSize: "0.85rem",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                backgroundColor: activeTab === "inventory" ? "#2563eb" : "transparent",
+                color: activeTab === "inventory" ? "#ffffff" : "#94a3b8"
+              }}
             >
-              <option value={3}>3 Samples</option>
-              <option value={5}>5 Samples</option>
-              <option value={8}>8 Samples</option>
-              <option value={10}>10 Samples</option>
-            </select>
+              <FolderOpen size={16} /> Local Inventory ({assets.length})
+            </button>
+            <button
+              onClick={() => setActiveTab("catalog")}
+              style={{
+                padding: "6px 14px",
+                borderRadius: "6px",
+                border: "none",
+                cursor: "pointer",
+                fontWeight: "600",
+                fontSize: "0.85rem",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                backgroundColor: activeTab === "catalog" ? "#2563eb" : "transparent",
+                color: activeTab === "catalog" ? "#ffffff" : "#94a3b8"
+              }}
+            >
+              <Globe size={16} /> Multi-Source Catalog Search ({candidates.length})
+            </button>
+            <button
+              onClick={() => setActiveTab("licenses")}
+              style={{
+                padding: "6px 14px",
+                borderRadius: "6px",
+                border: "none",
+                cursor: "pointer",
+                fontWeight: "600",
+                fontSize: "0.85rem",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                backgroundColor: activeTab === "licenses" ? "#2563eb" : "transparent",
+                color: activeTab === "licenses" ? "#ffffff" : "#94a3b8"
+              }}
+            >
+              <ShieldCheck size={16} /> License & Permission Gates
+            </button>
+            <button
+              onClick={() => setActiveTab("synthetic")}
+              style={{
+                padding: "6px 14px",
+                borderRadius: "6px",
+                border: "none",
+                cursor: "pointer",
+                fontWeight: "600",
+                fontSize: "0.85rem",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                backgroundColor: activeTab === "synthetic" ? "#2563eb" : "transparent",
+                color: activeTab === "synthetic" ? "#ffffff" : "#94a3b8"
+              }}
+            >
+              <Sparkles size={16} /> Synthetic Studio
+            </button>
+            <button
+              onClick={() => setActiveTab("audit")}
+              style={{
+                padding: "6px 14px",
+                borderRadius: "6px",
+                border: "none",
+                cursor: "pointer",
+                fontWeight: "600",
+                fontSize: "0.85rem",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                backgroundColor: activeTab === "audit" ? "#2563eb" : "transparent",
+                color: activeTab === "audit" ? "#ffffff" : "#94a3b8"
+              }}
+            >
+              <History size={16} /> Audit Trail & Manifest
+            </button>
           </div>
-
-          <button
-            className="btn btn-primary btn-sm"
-            onClick={() => handleRunScan(false)}
-            disabled={scanning}
-          >
-            <Search size={14} />
-            {scanning ? "Scanning..." : "Run Discovery Scan"}
-          </button>
-
-          <button
-            className="btn btn-secondary btn-sm"
-            onClick={() => handleRunScan(true)}
-            disabled={scanning}
-            title="Force re-sampling & re-profiling of all files"
-          >
-            <RefreshCw size={14} />
-            Force Re-Scan
-          </button>
         </div>
 
-        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-          <button className="btn btn-secondary btn-sm" onClick={() => setIsReportOpen(true)}>
-            <Info size={14} />
-            Discovery Report
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <button
+            onClick={openReport}
+            style={{
+              padding: "7px 14px",
+              backgroundColor: "#1e293b",
+              color: "#38bdf8",
+              border: "1px solid #334155",
+              borderRadius: "6px",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              fontWeight: "600",
+              fontSize: "0.85rem"
+            }}
+          >
+            <Info size={16} /> Readiness Report
           </button>
-
           <a
             href={getManifestUrl()}
             target="_blank"
-            rel="noopener noreferrer"
-            className="btn btn-secondary btn-sm"
-            download="keeainu_discovery_manifest.json"
+            rel="noreferrer"
+            style={{
+              padding: "7px 14px",
+              backgroundColor: "#1e293b",
+              color: "#a855f7",
+              border: "1px solid #334155",
+              borderRadius: "6px",
+              textDecoration: "none",
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              fontWeight: "600",
+              fontSize: "0.85rem"
+            }}
           >
-            <Download size={14} />
-            Export Manifest
+            <Download size={16} /> Export Manifest
           </a>
         </div>
       </div>
 
-      {/* Filters Toolbar */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
-        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-          <span style={{ fontSize: "0.8rem", color: "#94a3b8" }}>Domain:</span>
-          <select
-            value={domainFilter}
-            onChange={(e) => setDomainFilter(e.target.value)}
-            className="form-select"
-            style={{ fontSize: "0.8rem", padding: "4px 8px" }}
-          >
-            <option value="ALL">All Domains</option>
-            <option value="MECHANICAL">Mechanical (Engines/Turbines)</option>
-            <option value="PIPES_CHANNELS">Pipes & Channels</option>
-            <option value="MOULD_CAVITIES">Mould Cavities</option>
-            <option value="OTHER">Other / Different</option>
-            <option value="UNKNOWN">Unknown / Insufficient Evidence</option>
-          </select>
+      {/* Main Tab Views */}
+      <div style={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        {activeTab === "inventory" && (
+          <div style={{ display: "flex", width: "100%", height: "100%" }}>
+            {/* Left Sidebar: Controls & Asset List */}
+            <div style={{ width: "380px", borderRight: "1px solid #1f293d", display: "flex", flexDirection: "column", backgroundColor: "#0e1424" }}>
+              {/* Scan Trigger & Directory Box */}
+              <div style={{ padding: "16px", borderBottom: "1px solid #1f293d" }}>
+                <div style={{ display: "flex", gap: "8px", marginBottom: "10px" }}>
+                  <input
+                    type="text"
+                    placeholder="Custom sub-dir (e.g. data/source_footage)"
+                    value={customDir}
+                    onChange={(e) => setCustomDir(e.target.value)}
+                    style={{
+                      flex: 1,
+                      backgroundColor: "#161f36",
+                      border: "1px solid #2e3d60",
+                      borderRadius: "6px",
+                      padding: "7px 10px",
+                      color: "#fff",
+                      fontSize: "0.85rem"
+                    }}
+                  />
+                  <button
+                    onClick={() => handleScan(false)}
+                    disabled={scanning}
+                    style={{
+                      padding: "7px 14px",
+                      backgroundColor: "#2563eb",
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: "6px",
+                      cursor: scanning ? "not-allowed" : "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      fontWeight: "600",
+                      fontSize: "0.85rem"
+                    }}
+                  >
+                    <RefreshCw size={15} className={scanning ? "animate-spin" : ""} />
+                    {scanning ? "Scanning..." : "Scan"}
+                  </button>
+                </div>
 
-          <span style={{ fontSize: "0.8rem", color: "#94a3b8", marginLeft: "10px" }}>Provenance:</span>
-          <select
-            value={provenanceFilter}
-            onChange={(e) => setProvenanceFilter(e.target.value)}
-            className="form-select"
-            style={{ fontSize: "0.8rem", padding: "4px 8px" }}
-          >
-            <option value="ALL">All Assets</option>
-            <option value="REAL">Real Footage Only</option>
-            <option value="SYNTHETIC">Synthetic Fixtures Only</option>
-          </select>
-        </div>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <select
+                    value={domainFilter}
+                    onChange={(e) => setDomainFilter(e.target.value)}
+                    style={{
+                      flex: 1,
+                      backgroundColor: "#161f36",
+                      border: "1px solid #2e3d60",
+                      borderRadius: "6px",
+                      padding: "6px 8px",
+                      color: "#cbd5e1",
+                      fontSize: "0.8rem"
+                    }}
+                  >
+                    <option value="ALL">All Domains</option>
+                    <option value="MECHANICAL">Mechanical</option>
+                    <option value="PIPES_CHANNELS">Pipes & Channels</option>
+                    <option value="MOULD_CAVITIES">Mould Cavities</option>
+                    <option value="OTHER">Other</option>
+                    <option value="UNKNOWN">Unknown</option>
+                  </select>
 
-        <span style={{ fontSize: "0.8rem", color: "#94a3b8" }}>
-          Showing {assets.length} assets
-        </span>
-      </div>
+                  <select
+                    value={provenanceFilter}
+                    onChange={(e) => setProvenanceFilter(e.target.value)}
+                    style={{
+                      flex: 1,
+                      backgroundColor: "#161f36",
+                      border: "1px solid #2e3d60",
+                      borderRadius: "6px",
+                      padding: "6px 8px",
+                      color: "#cbd5e1",
+                      fontSize: "0.8rem"
+                    }}
+                  >
+                    <option value="ALL">All Provenance</option>
+                    <option value="REAL">Genuine Footage</option>
+                    <option value="SYNTHETIC">Synthetic Fixtures</option>
+                  </select>
+                </div>
+              </div>
 
-      {/* Asset Grid & Gallery */}
-      {loading ? (
-        <div style={{ padding: "40px", textAlign: "center", color: "#94a3b8" }}>
-          <RefreshCw size={24} className="animate-spin" style={{ margin: "0 auto 12px" }} />
-          Loading asset inventory...
-        </div>
-      ) : assets.length === 0 ? (
-        <div className="card" style={{ padding: "40px", textAlign: "center", color: "#94a3b8" }}>
-          <FileVideo size={40} color="#64748b" style={{ margin: "0 auto 16px" }} />
-          <h3 style={{ color: "#f8fafc", marginBottom: "8px" }}>No Discovered Assets Found</h3>
-          <p style={{ fontSize: "0.85rem", maxWidth: "500px", margin: "0 auto 16px" }}>
-            Place raw inspection footage into <code style={{ color: "#06b6d4" }}>data/source_footage/</code> or click
-            "Run Discovery Scan" to profile existing vaults and synthetic test fixtures.
-          </p>
-          <button className="btn btn-primary btn-sm" onClick={() => handleRunScan(false)} style={{ margin: "0 auto" }}>
-            Scan Default Vaults
-          </button>
-        </div>
-      ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: "16px" }}>
-          {assets.map((asset) => {
-            const hasContact = Boolean(asset.contact_sheet_path);
-            const domColor = getDomainBadgeColor(asset.domain_assignment);
-
-            return (
-              <div
-                key={asset.id}
-                className="card"
-                style={{
-                  padding: "16px",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "12px",
-                  cursor: "pointer",
-                  border: selectedAsset?.id === asset.id ? "1px solid #06b6d4" : "1px solid var(--border-subtle)",
-                }}
-                onClick={() => setSelectedAsset(asset)}
-              >
-                {/* Header & Badges */}
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "8px" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                    {asset.asset_type === "video" ? (
-                      <FileVideo size={18} color="#06b6d4" />
-                    ) : (
-                      <FileImage size={18} color="#10b981" />
-                    )}
-                    <div style={{ fontWeight: "700", fontSize: "0.9rem", color: "#f8fafc", wordBreak: "break-all" }}>
-                      {asset.filename}
-                    </div>
+              {/* Asset List */}
+              <div style={{ flex: 1, overflowY: "auto", padding: "12px" }}>
+                {loading ? (
+                  <div style={{ textAlign: "center", padding: "40px 0", color: "#64748b" }}>Loading assets...</div>
+                ) : assets.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: "40px 0", color: "#64748b" }}>
+                    No media assets discovered. Run a scan or acquire datasets from the Catalog tab.
                   </div>
-
-                  <span
-                    style={{
-                      fontSize: "0.65rem",
-                      padding: "2px 6px",
-                      borderRadius: "4px",
-                      fontWeight: "700",
-                      background: asset.is_synthetic ? "rgba(148, 163, 184, 0.2)" : "rgba(6, 182, 212, 0.2)",
-                      color: asset.is_synthetic ? "#94a3b8" : "#06b6d4",
-                      border: asset.is_synthetic ? "1px solid #64748b" : "1px solid #06b6d4",
-                      whiteSpace: "nowrap"
-                    }}
-                  >
-                    {asset.is_synthetic ? "SYNTHETIC" : "REAL EVIDENCE"}
-                  </span>
-                </div>
-
-                {/* Preview Image / Contact Sheet Thumbnail */}
-                <div
-                  style={{
-                    width: "100%",
-                    height: "160px",
-                    background: "#070a13",
-                    borderRadius: "8px",
-                    overflow: "hidden",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    border: "1px solid var(--border-subtle)",
-                    position: "relative"
-                  }}
-                >
-                  {hasContact ? (
-                    <img
-                      src={getContactSheetUrl(asset.id)}
-                      alt={asset.filename}
-                      style={{ width: "100%", height: "100%", objectFit: "contain" }}
-                      loading="lazy"
-                    />
-                  ) : asset.samples.length > 0 ? (
-                    <img
-                      src={getSampleImageUrl(asset.samples[0].id)}
-                      alt={asset.filename}
-                      style={{ width: "100%", height: "100%", objectFit: "contain" }}
-                      loading="lazy"
-                    />
-                  ) : (
-                    <span style={{ fontSize: "0.75rem", color: "#64748b" }}>No Preview Available</span>
-                  )}
-
-                  <span
-                    style={{
-                      position: "absolute",
-                      bottom: "6px",
-                      right: "6px",
-                      fontSize: "0.65rem",
-                      background: "rgba(0,0,0,0.75)",
-                      padding: "2px 6px",
-                      borderRadius: "4px",
-                      fontFamily: "var(--font-mono)",
-                      color: "#cbd5e1"
-                    }}
-                  >
-                    {asset.samples_count} Samples
-                  </span>
-                </div>
-
-                {/* Metadata details */}
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem", color: "#94a3b8", fontFamily: "var(--font-mono)" }}>
-                  <span>{asset.width}x{asset.height}</span>
-                  <span>{asset.fps > 0 ? `${asset.fps} FPS` : "FPS: N/A"}</span>
-                  <span>{(asset.file_size_bytes / 1024).toFixed(1)} KB</span>
-                </div>
-
-                {/* Quality & Domain Indicators */}
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: "8px", borderTop: "1px solid var(--border-subtle)" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                    <span
+                ) : (
+                  assets.map((asset) => (
+                    <div
+                      key={asset.id}
+                      onClick={() => setSelectedAsset(asset)}
                       style={{
-                        fontSize: "0.7rem",
-                        fontWeight: "700",
-                        padding: "2px 8px",
-                        borderRadius: "12px",
-                        background: `${domColor}22`,
-                        color: domColor,
-                        border: `1px solid ${domColor}`
+                        padding: "12px",
+                        borderRadius: "8px",
+                        backgroundColor: selectedAsset?.id === asset.id ? "#1e293b" : "#131a2c",
+                        border: `1px solid ${selectedAsset?.id === asset.id ? "#38bdf8" : "#1f293d"}`,
+                        marginBottom: "8px",
+                        cursor: "pointer",
+                        transition: "all 0.15s ease"
                       }}
                     >
-                      {asset.domain_assignment}
-                    </span>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "6px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px", maxWidth: "220px" }}>
+                          {asset.asset_type === "video" ? <FileVideo size={16} color="#38bdf8" /> : <FileImage size={16} color="#4ade80" />}
+                          <span style={{ fontSize: "0.85rem", fontWeight: "600", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            {asset.filename}
+                          </span>
+                        </div>
+                        <span
+                          style={{
+                            fontSize: "0.7rem",
+                            padding: "2px 6px",
+                            borderRadius: "4px",
+                            backgroundColor: asset.is_synthetic ? "#4c1d95" : "#065f46",
+                            color: asset.is_synthetic ? "#d8b4fe" : "#a7f3d0",
+                            fontWeight: "600"
+                          }}
+                        >
+                          {asset.is_synthetic ? "SYNTHETIC" : "REAL"}
+                        </span>
+                      </div>
+
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem", color: "#94a3b8" }}>
+                        <span>Domain: <strong style={{ color: "#e2e8f0" }}>{asset.domain_assignment || "UNKNOWN"}</strong></span>
+                        <span>{asset.samples_count || 0} samples</span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Right Main Pane: Asset Detail, Domain Review & Gallery */}
+            <div style={{ flex: 1, overflowY: "auto", padding: "24px", backgroundColor: "#0b0f19" }}>
+              {selectedAsset ? (
+                <div>
+                  {/* Header & Quality Summary */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "20px" }}>
+                    <div>
+                      <h1 style={{ fontSize: "1.4rem", fontWeight: "700", marginBottom: "4px" }}>{selectedAsset.filename}</h1>
+                      <div style={{ display: "flex", gap: "12px", fontSize: "0.8rem", color: "#94a3b8" }}>
+                        <span>SHA-256: <code style={{ color: "#38bdf8" }}>{selectedAsset.sha256_hash.slice(0, 16)}...</code></span>
+                        <span>Dimensions: <strong>{selectedAsset.width}x{selectedAsset.height}</strong></span>
+                        {selectedAsset.asset_type === "video" && <span>Duration: <strong>{selectedAsset.duration_seconds.toFixed(1)}s</strong></span>}
+                      </div>
+                    </div>
+
+                    {/* Domain Assignment Control */}
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", backgroundColor: "#161f36", padding: "8px 12px", borderRadius: "8px", border: "1px solid #2e3d60" }}>
+                      <span style={{ fontSize: "0.8rem", color: "#94a3b8" }}>Domain:</span>
+                      <select
+                        value={selectedAsset.domain_assignment || "UNKNOWN"}
+                        onChange={(e) => handleUpdateDomain(e.target.value as DomainCategory, "CERTAIN")}
+                        style={{
+                          backgroundColor: "#0e1424",
+                          color: "#38bdf8",
+                          border: "1px solid #38bdf8",
+                          borderRadius: "4px",
+                          padding: "4px 8px",
+                          fontWeight: "700",
+                          fontSize: "0.85rem"
+                        }}
+                      >
+                        <option value="MECHANICAL">Mechanical (Engines/Turbines)</option>
+                        <option value="PIPES_CHANNELS">Pipes & Channels</option>
+                        <option value="MOULD_CAVITIES">Mould Cavities</option>
+                        <option value="OTHER">Other Domain</option>
+                        <option value="UNKNOWN">Unknown / Indeterminate</option>
+                      </select>
+                    </div>
                   </div>
 
-                  {asset.quality_profile && (
-                    <div style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "0.7rem", color: asset.quality_profile.blur_detected ? "#f59e0b" : "#10b981" }}>
-                      <Sparkles size={12} />
-                      <span>Sharpness: {asset.quality_profile.sharpness_score}</span>
+                  {/* Contact Sheet & Quality Heuristics */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: "20px", marginBottom: "24px" }}>
+                    <div style={{ backgroundColor: "#0e1424", padding: "16px", borderRadius: "8px", border: "1px solid #1f293d" }}>
+                      <h3 style={{ fontSize: "0.95rem", fontWeight: "600", marginBottom: "12px", display: "flex", alignItems: "center", gap: "6px" }}>
+                        <Layers size={16} color="#38bdf8" /> Continuous Contact Sheet Gallery
+                      </h3>
+                      {selectedAsset.contact_sheet_path ? (
+                        <img
+                          src={getContactSheetUrl(selectedAsset.id)}
+                          alt="Contact Sheet"
+                          style={{ width: "100%", borderRadius: "6px", border: "1px solid #334155" }}
+                        />
+                      ) : (
+                        <div style={{ textAlign: "center", padding: "40px", color: "#64748b" }}>Contact sheet not generated</div>
+                      )}
                     </div>
-                  )}
+
+                    <div style={{ backgroundColor: "#0e1424", padding: "16px", borderRadius: "8px", border: "1px solid #1f293d" }}>
+                      <h3 style={{ fontSize: "0.95rem", fontWeight: "600", marginBottom: "12px", display: "flex", alignItems: "center", gap: "6px" }}>
+                        <Sliders size={16} color="#a855f7" /> Automated Visual Quality Profiling
+                      </h3>
+                      {selectedAsset.quality_profile ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "10px", fontSize: "0.85rem" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between" }}>
+                            <span style={{ color: "#94a3b8" }}>Sharpness (Laplacian Var):</span>
+                            <strong>{selectedAsset.quality_profile.sharpness_score.toFixed(1)}</strong>
+                          </div>
+                          <div style={{ display: "flex", justifyContent: "space-between" }}>
+                            <span style={{ color: "#94a3b8" }}>Mean Brightness:</span>
+                            <strong>{selectedAsset.quality_profile.brightness_mean.toFixed(1)} / 255</strong>
+                          </div>
+                          <div style={{ display: "flex", justifyContent: "space-between" }}>
+                            <span style={{ color: "#94a3b8" }}>Contrast (Std Dev):</span>
+                            <strong>{selectedAsset.quality_profile.contrast_std.toFixed(1)}</strong>
+                          </div>
+                          <div style={{ display: "flex", justifyContent: "space-between" }}>
+                            <span style={{ color: "#94a3b8" }}>Blur Heuristic Flag:</span>
+                            <span style={{ color: selectedAsset.quality_profile.blur_detected ? "#ef4444" : "#4ade80", fontWeight: "700" }}>
+                              {selectedAsset.quality_profile.blur_detected ? "BLUR FLAGGED" : "NOMINAL FOCUS"}
+                            </span>
+                          </div>
+                          <div style={{ borderTop: "1px solid #1f293d", paddingTop: "8px", marginTop: "4px" }}>
+                            <span style={{ color: "#94a3b8", fontSize: "0.75rem", display: "block", marginBottom: "4px" }}>Heuristic Explanations:</span>
+                            {selectedAsset.quality_profile.explanations.map((exp, i) => (
+                              <div key={i} style={{ fontSize: "0.75rem", color: "#cbd5e1", marginBottom: "2px" }}>• {exp}</div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ textAlign: "center", padding: "40px", color: "#64748b" }}>Quality metrics unavailable</div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Representative Sample Frames Grid & Human Review */}
+                  <div style={{ backgroundColor: "#0e1424", padding: "20px", borderRadius: "8px", border: "1px solid #1f293d" }}>
+                    <h3 style={{ fontSize: "1rem", fontWeight: "600", marginBottom: "16px" }}>
+                      Representative Extracted Sample Frames ({selectedAsset.samples.length})
+                    </h3>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: "16px" }}>
+                      {selectedAsset.samples.map((sample) => (
+                        <div key={sample.id} style={{ backgroundColor: "#161f36", borderRadius: "8px", overflow: "hidden", border: "1px solid #2e3d60" }}>
+                          <img
+                            src={getSampleImageUrl(sample.id)}
+                            alt={`Frame ${sample.frame_index}`}
+                            style={{ width: "100%", height: "140px", objectFit: "cover" }}
+                          />
+                          <div style={{ padding: "12px" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem", color: "#94a3b8", marginBottom: "8px" }}>
+                              <span>Frame #{sample.frame_index}</span>
+                              <span>{sample.timestamp_ms.toFixed(0)} ms</span>
+                            </div>
+
+                            <select
+                              value={sample.review_status}
+                              onChange={(e) => handleUpdateSampleReview(sample.id, e.target.value as SampleReviewStatus)}
+                              style={{
+                                width: "100%",
+                                backgroundColor: "#0b0f19",
+                                color: sample.review_status === "CONFIRMED_DEFECT" ? "#ef4444" : "#f1f5f9",
+                                border: "1px solid #334155",
+                                borderRadius: "4px",
+                                padding: "6px",
+                                fontSize: "0.8rem",
+                                fontWeight: "600"
+                              }}
+                            >
+                              <option value="UNREVIEWED">Unreviewed</option>
+                              <option value="NO_VISIBLE_DEFECT">No Visible Defect</option>
+                              <option value="SUSPECTED_ANOMALY">Suspected Anomaly</option>
+                              <option value="CONFIRMED_DEFECT">Confirmed Defect</option>
+                              <option value="UNCERTAIN_NEEDS_EXPERT">Needs Expert Review</option>
+                              <option value="UNUSABLE">Unusable / Corrupt</option>
+                            </select>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Asset Detail & Sample Review Drawer */}
-      {selectedAsset && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            right: 0,
-            bottom: 0,
-            width: "600px",
-            maxWidth: "90vw",
-            background: "var(--bg-card)",
-            borderLeft: "1px solid var(--border-subtle)",
-            zIndex: 1000,
-            padding: "24px",
-            display: "flex",
-            flexDirection: "column",
-            gap: "20px",
-            overflowY: "auto",
-            boxShadow: "-10px 0 30px rgba(0,0,0,0.5)"
-          }}
-        >
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-            <div>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <Layers size={18} color="#06b6d4" />
-                <h3 style={{ fontSize: "1.1rem", fontWeight: "800", color: "#f8fafc" }}>{selectedAsset.filename}</h3>
-              </div>
-              <div style={{ fontSize: "0.75rem", color: "#94a3b8", fontFamily: "var(--font-mono)", marginTop: "4px" }}>
-                SHA-256: {selectedAsset.sha256_hash}
-              </div>
-            </div>
-
-            <button
-              className="btn btn-secondary btn-sm"
-              onClick={() => setSelectedAsset(null)}
-              style={{ padding: "4px 8px" }}
-            >
-              ✕
-            </button>
-          </div>
-
-          {/* Contact Sheet Preview */}
-          {selectedAsset.contact_sheet_path && (
-            <div>
-              <div style={{ fontSize: "0.8rem", fontWeight: "700", color: "#94a3b8", marginBottom: "8px" }}>
-                REPRESENTATIVE CONTACT SHEET MOSAIC
-              </div>
-              <div style={{ background: "#070a13", borderRadius: "8px", overflow: "hidden", border: "1px solid var(--border-subtle)" }}>
-                <img
-                  src={getContactSheetUrl(selectedAsset.id)}
-                  alt="Contact Sheet"
-                  style={{ width: "100%", height: "auto", display: "block" }}
-                />
-              </div>
-            </div>
-          )}
-
-          {/* Explainable Quality Heuristics */}
-          {selectedAsset.quality_profile && (
-            <div className="card" style={{ padding: "14px", background: "var(--bg-dark)" }}>
-              <div style={{ fontSize: "0.8rem", fontWeight: "700", color: "#06b6d4", marginBottom: "8px", display: "flex", alignItems: "center", gap: "6px" }}>
-                <Sparkles size={14} />
-                EXPLAINABLE QUALITY PROFILE (HEURISTICS)
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", fontSize: "0.75rem", fontFamily: "var(--font-mono)" }}>
-                <div>Sharpness: <strong>{selectedAsset.quality_profile.sharpness_score}</strong></div>
-                <div>Brightness: <strong>{selectedAsset.quality_profile.brightness_mean}/255</strong></div>
-                <div>Contrast Std: <strong>{selectedAsset.quality_profile.contrast_std}</strong></div>
-                <div>Overexposure: <strong>{(selectedAsset.quality_profile.overexposure_ratio * 100).toFixed(1)}%</strong></div>
-                <div>Static Frame Ratio: <strong>{(selectedAsset.quality_profile.near_duplicate_ratio * 100).toFixed(1)}%</strong></div>
-                <div>Meta Reliability: <strong>{selectedAsset.quality_profile.metadata_reliability}</strong></div>
-              </div>
-
-              {selectedAsset.quality_profile.explanations.length > 0 && (
-                <div style={{ marginTop: "10px", borderTop: "1px solid var(--border-subtle)", paddingTop: "8px" }}>
-                  {selectedAsset.quality_profile.explanations.map((exp, idx) => (
-                    <div key={idx} style={{ fontSize: "0.75rem", color: "#94a3b8", marginTop: "4px" }}>
-                      • {exp}
-                    </div>
-                  ))}
+              ) : (
+                <div style={{ textAlign: "center", padding: "100px 0", color: "#64748b" }}>
+                  Select an asset from the left panel to inspect details and quality metrics.
                 </div>
               )}
             </div>
-          )}
+          </div>
+        )}
 
-          {/* Domain Review Assignment Form */}
-          <div className="card" style={{ padding: "14px" }}>
-            <div style={{ fontSize: "0.8rem", fontWeight: "700", color: "#f8fafc", marginBottom: "10px" }}>
-              INSPECTION DOMAIN REVIEW
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-              <div>
-                <label style={{ fontSize: "0.75rem", color: "#94a3b8" }}>Candidate Domain:</label>
+        {/* Tab 2: Multi-Source Catalog Search */}
+        {activeTab === "catalog" && (
+          <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", padding: "24px", overflowY: "auto" }}>
+            {/* Search Header Controls */}
+            <div style={{ backgroundColor: "#0e1424", padding: "20px", borderRadius: "10px", border: "1px solid #1f293d", marginBottom: "20px" }}>
+              <h2 style={{ fontSize: "1.2rem", fontWeight: "700", marginBottom: "12px", display: "flex", alignItems: "center", gap: "8px" }}>
+                <Globe size={20} color="#38bdf8" /> Discover External & Internal Datasets
+              </h2>
+
+              <div style={{ display: "flex", gap: "12px", marginBottom: "16px" }}>
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Enter keywords (e.g. borescope, sewer pipe fracture, turbine blade erosion...)"
+                  style={{
+                    flex: 1,
+                    backgroundColor: "#161f36",
+                    border: "1px solid #2e3d60",
+                    borderRadius: "8px",
+                    padding: "10px 14px",
+                    color: "#fff",
+                    fontSize: "0.95rem"
+                  }}
+                />
                 <select
-                  value={selectedAsset.domain_assignment}
-                  onChange={(e) =>
-                    handleDomainChange(
-                      selectedAsset.id,
-                      e.target.value as DomainCategory,
-                      selectedAsset.domain_confidence,
-                      selectedAsset.domain_notes || ""
-                    )
-                  }
-                  className="form-select"
-                  style={{ width: "100%", marginTop: "4px" }}
+                  value={targetSearchDomain}
+                  onChange={(e) => setTargetSearchDomain(e.target.value)}
+                  style={{
+                    backgroundColor: "#161f36",
+                    border: "1px solid #2e3d60",
+                    borderRadius: "8px",
+                    padding: "10px 14px",
+                    color: "#38bdf8",
+                    fontWeight: "600"
+                  }}
                 >
-                  <option value="UNKNOWN">UNKNOWN (Insufficient / Indeterminate Evidence)</option>
-                  <option value="MECHANICAL">MECHANICAL (Engines, Turbines, Gearboxes)</option>
-                  <option value="PIPES_CHANNELS">PIPES & CHANNELS (Tubes, Boiler Internal Surfaces)</option>
-                  <option value="MOULD_CAVITIES">MOULD CAVITIES (Casting Dies, Cavities)</option>
-                  <option value="OTHER">OTHER (Different Domain)</option>
+                  <option value="MECHANICAL">Mechanical (Engines/Turbines)</option>
+                  <option value="PIPES_CHANNELS">Pipes & Channels</option>
+                  <option value="MOULD_CAVITIES">Mould Cavities</option>
+                  <option value="UNKNOWN">All / Cross-Domain</option>
                 </select>
+                <button
+                  onClick={handleCatalogSearch}
+                  disabled={searching}
+                  style={{
+                    padding: "10px 20px",
+                    backgroundColor: "#2563eb",
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: "8px",
+                    fontWeight: "700",
+                    cursor: searching ? "not-allowed" : "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px"
+                  }}
+                >
+                  <Search size={18} /> {searching ? "Searching..." : "Search Catalogs"}
+                </button>
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+              {/* Provider checkboxes */}
+              <div style={{ display: "flex", alignItems: "center", gap: "16px", flexWrap: "wrap", fontSize: "0.8rem", color: "#94a3b8" }}>
+                <span>Search Providers:</span>
+                {providers.map((p) => (
+                  <label key={p.id} style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={selectedProviders.length === 0 || selectedProviders.includes(p.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedProviders([...selectedProviders, p.id]);
+                        } else {
+                          setSelectedProviders(selectedProviders.filter(id => id !== p.id));
+                        }
+                      }}
+                    />
+                    {p.name}
+                  </label>
+                ))}
+                <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", marginLeft: "auto", color: "#38bdf8" }}>
+                  <input
+                    type="checkbox"
+                    checked={directVideoscopeOnly}
+                    onChange={(e) => setDirectVideoscopeOnly(e.target.checked)}
+                  />
+                  Direct Borescope Only
+                </label>
+              </div>
+            </div>
+
+            {/* Candidates Results Grid */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))", gap: "20px" }}>
+              {candidates.map((cand) => (
+                <div
+                  key={cand.id}
+                  style={{
+                    backgroundColor: "#0e1424",
+                    borderRadius: "10px",
+                    border: "1px solid #1f293d",
+                    padding: "20px",
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "space-between"
+                  }}
+                >
+                  <div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "8px" }}>
+                      <span style={{ fontSize: "0.75rem", color: "#38bdf8", fontWeight: "700" }}>{cand.provider_name}</span>
+                      <span
+                        style={{
+                          fontSize: "0.7rem",
+                          padding: "3px 8px",
+                          borderRadius: "4px",
+                          fontWeight: "700",
+                          backgroundColor:
+                            cand.license_status === "APPROVED_FOR_EVALUATION"
+                              ? "#065f46"
+                              : cand.license_status === "APPROVED_FOR_NONCOMMERCIAL_RESEARCH"
+                              ? "#0369a1"
+                              : cand.license_status === "REJECTED"
+                              ? "#7f1d1d"
+                              : "#854d0e",
+                          color: "#fff"
+                        }}
+                      >
+                        {cand.license_status}
+                      </span>
+                    </div>
+
+                    <h3 style={{ fontSize: "1.05rem", fontWeight: "700", marginBottom: "8px", lineHeight: "1.3" }}>
+                      {cand.title}
+                    </h3>
+                    <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginBottom: "12px" }}>
+                      Publisher: <strong>{cand.publisher}</strong> | Domain: <strong>{cand.domain_tag}</strong>
+                    </div>
+
+                    <p style={{ fontSize: "0.85rem", color: "#cbd5e1", marginBottom: "14px", lineHeight: "1.4" }}>
+                      {cand.description}
+                    </p>
+
+                    {/* Relevance Score Bar */}
+                    <div
+                      onClick={() => {
+                        setSelectedCandidate(cand);
+                        setIsRelevanceModalOpen(true);
+                      }}
+                      style={{
+                        backgroundColor: "#161f36",
+                        padding: "8px 12px",
+                        borderRadius: "6px",
+                        cursor: "pointer",
+                        marginBottom: "14px",
+                        border: "1px solid #2e3d60"
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.8rem", marginBottom: "4px" }}>
+                        <span>Explainable Relevance Score:</span>
+                        <strong style={{ color: "#38bdf8" }}>{cand.relevance_score} / 100</strong>
+                      </div>
+                      <div style={{ width: "100%", height: "6px", backgroundColor: "#0b0f19", borderRadius: "3px", overflow: "hidden" }}>
+                        <div style={{ width: `${cand.relevance_score}%`, height: "100%", backgroundColor: "#38bdf8" }} />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", gap: "10px", borderTop: "1px solid #1f293d", paddingTop: "14px" }}>
+                    <button
+                      onClick={() => handleOpenLicenseModal(cand)}
+                      style={{
+                        flex: 1,
+                        padding: "8px",
+                        backgroundColor: "#1e293b",
+                        color: "#f8fafc",
+                        border: "1px solid #334155",
+                        borderRadius: "6px",
+                        fontSize: "0.8rem",
+                        fontWeight: "600",
+                        cursor: "pointer"
+                      }}
+                    >
+                      Audit License
+                    </button>
+                    <button
+                      onClick={() => handleAcquireCandidate(cand)}
+                      style={{
+                        flex: 1,
+                        padding: "8px",
+                        backgroundColor:
+                          cand.license_status === "APPROVED_FOR_EVALUATION" || cand.license_status === "APPROVED_FOR_NONCOMMERCIAL_RESEARCH"
+                            ? "#2563eb"
+                            : "#334155",
+                        color: "#fff",
+                        border: "none",
+                        borderRadius: "6px",
+                        fontSize: "0.8rem",
+                        fontWeight: "700",
+                        cursor:
+                          cand.license_status === "APPROVED_FOR_EVALUATION" || cand.license_status === "APPROVED_FOR_NONCOMMERCIAL_RESEARCH"
+                            ? "pointer"
+                            : "not-allowed"
+                      }}
+                    >
+                      Acquire Data
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Tab 3: License Review & Permission Gates */}
+        {activeTab === "licenses" && (
+          <div style={{ width: "100%", padding: "24px", overflowY: "auto" }}>
+            <div style={{ backgroundColor: "#0e1424", padding: "20px", borderRadius: "10px", border: "1px solid #1f293d", marginBottom: "20px" }}>
+              <h2 style={{ fontSize: "1.2rem", fontWeight: "700", marginBottom: "8px", display: "flex", alignItems: "center", gap: "8px" }}>
+                <ShieldCheck size={22} color="#10b981" /> Formal License & Rights Gating Registry
+              </h2>
+              <p style={{ fontSize: "0.85rem", color: "#94a3b8" }}>
+                Strict compliance gates prevent unauthorized, non-commercial, or unverified dataset assets from entering AI model evaluation or commercial pipelines.
+              </p>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "12px" }}>
+              {candidates.map((cand) => (
+                <div
+                  key={cand.id}
+                  style={{
+                    backgroundColor: "#0e1424",
+                    padding: "16px 20px",
+                    borderRadius: "8px",
+                    border: "1px solid #1f293d",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center"
+                  }}
+                >
+                  <div>
+                    <h4 style={{ fontSize: "1rem", fontWeight: "700", marginBottom: "4px" }}>{cand.title}</h4>
+                    <div style={{ fontSize: "0.8rem", color: "#94a3b8", display: "flex", gap: "14px" }}>
+                      <span>Publisher: <strong>{cand.publisher}</strong></span>
+                      <span>Declared License: <strong style={{ color: "#38bdf8" }}>{cand.license_identifier}</strong></span>
+                      <span>Commercial Allowed: <strong>{cand.commercial_use_allowed ? "YES" : "NO"}</strong></span>
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                    <span
+                      style={{
+                        fontSize: "0.75rem",
+                        padding: "4px 10px",
+                        borderRadius: "6px",
+                        fontWeight: "700",
+                        backgroundColor:
+                          cand.license_status === "APPROVED_FOR_EVALUATION"
+                            ? "#065f46"
+                            : cand.license_status === "APPROVED_FOR_NONCOMMERCIAL_RESEARCH"
+                            ? "#0369a1"
+                            : cand.license_status === "REJECTED"
+                            ? "#7f1d1d"
+                            : "#854d0e",
+                        color: "#fff"
+                      }}
+                    >
+                      {cand.license_status}
+                    </span>
+                    <button
+                      onClick={() => handleOpenLicenseModal(cand)}
+                      style={{
+                        padding: "6px 14px",
+                        backgroundColor: "#2563eb",
+                        color: "#fff",
+                        border: "none",
+                        borderRadius: "6px",
+                        fontWeight: "600",
+                        fontSize: "0.8rem",
+                        cursor: "pointer"
+                      }}
+                    >
+                      Edit Review
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Tab 4: Synthetic Defect Studio */}
+        {activeTab === "synthetic" && (
+          <div style={{ width: "100%", padding: "24px", overflowY: "auto", display: "flex", justifyContent: "center" }}>
+            <div style={{ width: "680px", backgroundColor: "#0e1424", padding: "28px", borderRadius: "12px", border: "1px solid #1f293d" }}>
+              <h2 style={{ fontSize: "1.3rem", fontWeight: "700", marginBottom: "8px", display: "flex", alignItems: "center", gap: "8px" }}>
+                <Sparkles size={22} color="#a855f7" /> Controlled Procedural Synthetic Defect Studio
+              </h2>
+              <p style={{ fontSize: "0.85rem", color: "#94a3b8", marginBottom: "24px" }}>
+                Generate parameterized procedural defect media with immutable provenance tracking (<code>is_synthetic=True</code>) and deterministic random seeds.
+              </p>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
                 <div>
-                  <label style={{ fontSize: "0.75rem", color: "#94a3b8" }}>Confidence Level:</label>
+                  <label style={{ fontSize: "0.85rem", fontWeight: "600", color: "#cbd5e1", display: "block", marginBottom: "6px" }}>
+                    Target Industrial Domain:
+                  </label>
                   <select
-                    value={selectedAsset.domain_confidence}
-                    onChange={(e) =>
-                      handleDomainChange(
-                        selectedAsset.id,
-                        selectedAsset.domain_assignment,
-                        e.target.value as DomainConfidence,
-                        selectedAsset.domain_notes || ""
-                      )
-                    }
-                    className="form-select"
-                    style={{ width: "100%", marginTop: "4px" }}
+                    value={synthDomain}
+                    onChange={(e) => setSynthDomain(e.target.value as any)}
+                    style={{ width: "100%", backgroundColor: "#161f36", border: "1px solid #2e3d60", borderRadius: "6px", padding: "8px 12px", color: "#fff" }}
                   >
-                    <option value="PROVISIONAL">PROVISIONAL</option>
-                    <option value="CERTAIN">CERTAIN</option>
-                    <option value="UNCERTAIN">UNCERTAIN</option>
+                    <option value="PIPES_CHANNELS">Pipes & Channels (Tubular Perspective)</option>
+                    <option value="MECHANICAL">Mechanical (Turbine Blades / Compressors)</option>
+                    <option value="MOULD_CAVITIES">Mould Cavities (Specular Die Surfaces)</option>
                   </select>
                 </div>
 
                 <div>
-                  <label style={{ fontSize: "0.75rem", color: "#94a3b8" }}>Reviewer Name:</label>
+                  <label style={{ fontSize: "0.85rem", fontWeight: "600", color: "#cbd5e1", display: "block", marginBottom: "6px" }}>
+                    Defect Flaw Pattern:
+                  </label>
+                  <select
+                    value={synthDefect}
+                    onChange={(e) => setSynthDefect(e.target.value as any)}
+                    style={{ width: "100%", backgroundColor: "#161f36", border: "1px solid #2e3d60", borderRadius: "6px", padding: "8px 12px", color: "#fff" }}
+                  >
+                    <option value="CRACK">Fracture / Stress Corrosion Crack</option>
+                    <option value="CORROSION_PIT">Localized Pitting Corrosion</option>
+                    <option value="EROSION">Leading Edge Surface Erosion</option>
+                    <option value="DEPOSIT">Internal Scale / Foreign Object Debris</option>
+                  </select>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+                  <div>
+                    <label style={{ fontSize: "0.85rem", fontWeight: "600", color: "#cbd5e1", display: "block", marginBottom: "6px" }}>
+                      Batch Item Count:
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={10}
+                      value={synthCount}
+                      onChange={(e) => setSynthCount(parseInt(e.target.value) || 1)}
+                      style={{ width: "100%", backgroundColor: "#161f36", border: "1px solid #2e3d60", borderRadius: "6px", padding: "8px 12px", color: "#fff" }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: "0.85rem", fontWeight: "600", color: "#cbd5e1", display: "block", marginBottom: "6px" }}>
+                      Random Seed (Reproducibility):
+                    </label>
+                    <input
+                      type="number"
+                      value={synthSeed}
+                      onChange={(e) => setSynthSeed(parseInt(e.target.value) || 42)}
+                      style={{ width: "100%", backgroundColor: "#161f36", border: "1px solid #2e3d60", borderRadius: "6px", padding: "8px 12px", color: "#fff" }}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem", marginBottom: "4px" }}>
+                    <span>Lighting Variation:</span>
+                    <span>{(lightingVar * 100).toFixed(0)}%</span>
+                  </div>
                   <input
-                    type="text"
-                    value={reviewerName}
-                    onChange={(e) => setReviewerName(e.target.value)}
-                    className="form-control"
-                    style={{ width: "100%", marginTop: "4px" }}
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={lightingVar}
+                    onChange={(e) => setLightingVar(parseFloat(e.target.value))}
+                    style={{ width: "100%" }}
                   />
                 </div>
-              </div>
 
-              <div>
-                <label style={{ fontSize: "0.75rem", color: "#94a3b8" }}>Reviewer Domain Notes:</label>
-                <textarea
-                  placeholder="Record observations regarding component structure, surface finish, scale..."
-                  value={selectedAsset.domain_notes || ""}
-                  onChange={(e) =>
-                    setSelectedAsset({ ...selectedAsset, domain_notes: e.target.value })
-                  }
-                  onBlur={(e) =>
-                    handleDomainChange(
-                      selectedAsset.id,
-                      selectedAsset.domain_assignment,
-                      selectedAsset.domain_confidence,
-                      e.target.value
-                    )
-                  }
-                  className="form-control"
-                  rows={2}
-                  style={{ width: "100%", marginTop: "4px" }}
-                />
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem", marginBottom: "4px" }}>
+                    <span>Sensor Noise Level:</span>
+                    <span>{(noiseVar * 100).toFixed(0)}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={0.5}
+                    step={0.02}
+                    value={noiseVar}
+                    onChange={(e) => setNoiseVar(parseFloat(e.target.value))}
+                    style={{ width: "100%" }}
+                  />
+                </div>
+
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem", marginBottom: "4px" }}>
+                    <span>Optical Blur Level:</span>
+                    <span>{(blurVar * 100).toFixed(0)}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={blurVar}
+                    onChange={(e) => setBlurVar(parseFloat(e.target.value))}
+                    style={{ width: "100%" }}
+                  />
+                </div>
+
+                <button
+                  onClick={handleGenerateSynthetic}
+                  disabled={generatingSynth}
+                  style={{
+                    marginTop: "12px",
+                    padding: "12px",
+                    backgroundColor: "#9333ea",
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: "8px",
+                    fontWeight: "700",
+                    fontSize: "0.95rem",
+                    cursor: generatingSynth ? "not-allowed" : "pointer",
+                    display: "flex",
+                    justifyContent: "center",
+                    alignItems: "center",
+                    gap: "8px"
+                  }}
+                >
+                  <Sparkles size={18} />
+                  {generatingSynth ? "Generating Procedural Media..." : "Generate Synthetic Media Batch"}
+                </button>
               </div>
             </div>
           </div>
+        )}
 
-          {/* Sample Frames Gallery & Defect Triage */}
-          <div>
-            <div style={{ fontSize: "0.8rem", fontWeight: "700", color: "#f8fafc", marginBottom: "10px" }}>
-              SAMPLE FRAMES & DEFECT TRIAGE ({selectedAsset.samples.length})
+        {/* Tab 5: Audit Trail & Manifest */}
+        {activeTab === "audit" && (
+          <div style={{ width: "100%", padding: "24px", overflowY: "auto" }}>
+            <div style={{ backgroundColor: "#0e1424", padding: "20px", borderRadius: "10px", border: "1px solid #1f293d", marginBottom: "20px" }}>
+              <h2 style={{ fontSize: "1.2rem", fontWeight: "700", marginBottom: "8px", display: "flex", alignItems: "center", gap: "8px" }}>
+                <History size={22} color="#38bdf8" /> Immutable Acquisition & Provenance Audit Trail
+              </h2>
+              <p style={{ fontSize: "0.85rem", color: "#94a3b8" }}>
+                Complete event log tracing catalog searches, compliance license gate approvals, controlled downloads, and procedural generations.
+              </p>
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-              {selectedAsset.samples.map((sample) => {
-                const badgeStyle = getReviewBadgeStyle(sample.review_status);
-
-                return (
+            {loadingAudit ? (
+              <div style={{ textAlign: "center", padding: "40px", color: "#64748b" }}>Loading audit log...</div>
+            ) : auditEvents.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "40px", color: "#64748b" }}>No audit events recorded yet.</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                {auditEvents.map((evt) => (
                   <div
-                    key={sample.id}
-                    className="card"
-                    style={{ padding: "12px", display: "flex", gap: "12px", background: "var(--bg-dark)" }}
+                    key={evt.id}
+                    style={{
+                      backgroundColor: "#0e1424",
+                      padding: "14px 18px",
+                      borderRadius: "8px",
+                      border: "1px solid #1f293d",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center"
+                    }}
                   >
-                    <img
-                      src={getSampleImageUrl(sample.id)}
-                      alt={`Frame ${sample.frame_index}`}
-                      style={{
-                        width: "120px",
-                        height: "90px",
-                        objectFit: "cover",
-                        borderRadius: "6px",
-                        border: "1px solid var(--border-subtle)"
-                      }}
-                      loading="lazy"
-                    />
-
-                    <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "6px" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <span style={{ fontSize: "0.8rem", fontWeight: "700" }}>Frame #{sample.frame_index}</span>
-                        <span style={{ fontSize: "0.7rem", fontFamily: "var(--font-mono)", color: "#94a3b8" }}>
-                          TS: {sample.timestamp_ms.toFixed(1)}ms ({sample.timestamp_provenance})
-                        </span>
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+                        <span style={{ fontSize: "0.85rem", fontWeight: "700", color: "#38bdf8" }}>{evt.event_type}</span>
+                        <code style={{ fontSize: "0.75rem", color: "#94a3b8" }}>{evt.id}</code>
                       </div>
-
-                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "4px" }}>
-                        <button
-                          className="btn btn-sm"
-                          style={{ fontSize: "0.7rem", padding: "2px 6px", ...badgeStyle }}
-                        >
-                          {sample.review_status}
-                        </button>
-
-                        <select
-                          value={sample.review_status}
-                          onChange={(e) =>
-                            handleSampleReviewChange(
-                              sample.id,
-                              e.target.value as SampleReviewStatus,
-                              sample.suspected_category,
-                              sample.reviewer_notes
-                            )
-                          }
-                          className="form-select"
-                          style={{ fontSize: "0.75rem", padding: "2px 6px" }}
-                        >
-                          <option value="UNREVIEWED">Unreviewed</option>
-                          <option value="NO_VISIBLE_DEFECT">No Visible Defect</option>
-                          <option value="SUSPECTED_ANOMALY">Suspected Anomaly</option>
-                          <option value="CONFIRMED_DEFECT">Confirmed Defect</option>
-                          <option value="UNCERTAIN_NEEDS_EXPERT">Uncertain (Needs Expert)</option>
-                          <option value="UNUSABLE">Unusable (Low Quality)</option>
-                        </select>
+                      <div style={{ fontSize: "0.8rem", color: "#cbd5e1" }}>
+                        {JSON.stringify(evt.details)}
                       </div>
-
-                      {sample.reviewer_notes && (
-                        <div style={{ fontSize: "0.75rem", color: "#94a3b8", fontStyle: "italic" }}>
-                          "{sample.reviewer_notes}"
-                        </div>
-                      )}
                     </div>
+                    <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
+                      {new Date(evt.created_at).toLocaleString()}
+                    </span>
                   </div>
-                );
-              })}
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* License Audit Modal */}
+      {licenseModalCandidate && (
+        <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
+          <div style={{ width: "520px", backgroundColor: "#0e1424", padding: "24px", borderRadius: "10px", border: "1px solid #2e3d60", color: "#fff" }}>
+            <h3 style={{ fontSize: "1.2rem", fontWeight: "700", marginBottom: "12px" }}>
+              Formal License Review: {licenseModalCandidate.title}
+            </h3>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "14px", fontSize: "0.85rem", marginBottom: "20px" }}>
+              <div>
+                <label style={{ display: "block", color: "#94a3b8", marginBottom: "4px" }}>License Permission State:</label>
+                <select
+                  value={targetLicenseStatus}
+                  onChange={(e) => setTargetLicenseStatus(e.target.value as LicensePermissionStatus)}
+                  style={{ width: "100%", backgroundColor: "#161f36", border: "1px solid #2e3d60", borderRadius: "6px", padding: "8px", color: "#fff" }}
+                >
+                  <option value="APPROVED_FOR_EVALUATION">APPROVED_FOR_EVALUATION (Permissive / Safe)</option>
+                  <option value="APPROVED_FOR_NONCOMMERCIAL_RESEARCH">APPROVED_FOR_NONCOMMERCIAL_RESEARCH</option>
+                  <option value="COMMERCIAL_USE_REVIEW_REQUIRED">COMMERCIAL_USE_REVIEW_REQUIRED</option>
+                  <option value="LICENSE_UNKNOWN">LICENSE_UNKNOWN</option>
+                  <option value="ACCESS_RESTRICTED">ACCESS_RESTRICTED</option>
+                  <option value="DOWNLOAD_NOT_AUTHORIZED">DOWNLOAD_NOT_AUTHORIZED</option>
+                  <option value="REJECTED">REJECTED (Prohibited)</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: "block", color: "#94a3b8", marginBottom: "4px" }}>Commercial Rights Clearance:</label>
+                <select
+                  value={targetCommRights}
+                  onChange={(e) => setTargetCommRights(e.target.value as any)}
+                  style={{ width: "100%", backgroundColor: "#161f36", border: "1px solid #2e3d60", borderRadius: "6px", padding: "8px", color: "#fff" }}
+                >
+                  <option value="ALLOWED">ALLOWED (Commercial & Evaluation Rights Verified)</option>
+                  <option value="FORBIDDEN">FORBIDDEN (Non-Commercial / Gated Only)</option>
+                  <option value="REVIEW_REQUIRED">REVIEW_REQUIRED (Pending Legal Audit)</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: "block", color: "#94a3b8", marginBottom: "4px" }}>Compliance Reviewer Name:</label>
+                <input
+                  type="text"
+                  value={complianceReviewer}
+                  onChange={(e) => setComplianceReviewer(e.target.value)}
+                  style={{ width: "100%", backgroundColor: "#161f36", border: "1px solid #2e3d60", borderRadius: "6px", padding: "8px", color: "#fff" }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: "block", color: "#94a3b8", marginBottom: "4px" }}>Audit Notes & Rationale:</label>
+                <textarea
+                  rows={3}
+                  value={licenseNotes}
+                  onChange={(e) => setLicenseNotes(e.target.value)}
+                  style={{ width: "100%", backgroundColor: "#161f36", border: "1px solid #2e3d60", borderRadius: "6px", padding: "8px", color: "#fff" }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
+              <button
+                onClick={() => setLicenseModalCandidate(null)}
+                style={{ padding: "8px 16px", backgroundColor: "#1e293b", color: "#fff", border: "1px solid #334155", borderRadius: "6px", cursor: "pointer" }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveLicenseReview}
+                style={{ padding: "8px 16px", backgroundColor: "#2563eb", color: "#fff", border: "none", borderRadius: "6px", fontWeight: "700", cursor: "pointer" }}
+              >
+                Save Compliance Audit
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Discovery Report Modal */}
-      {isReportOpen && report && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: "rgba(0,0,0,0.75)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 1100,
-            padding: "20px"
-          }}
-          onClick={() => setIsReportOpen(false)}
-        >
-          <div
-            className="card"
-            style={{
-              width: "700px",
-              maxWidth: "100%",
-              maxHeight: "85vh",
-              overflowY: "auto",
-              padding: "24px",
-              display: "flex",
-              flexDirection: "column",
-              gap: "16px"
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <Info size={20} color="#06b6d4" />
-                <h3 style={{ fontSize: "1.2rem", fontWeight: "800" }}>Dataset Discovery & Profiling Report</h3>
-              </div>
-              <button className="btn btn-secondary btn-sm" onClick={() => setIsReportOpen(false)}>✕</button>
-            </div>
+      {/* Relevance Breakdown Modal */}
+      {isRelevanceModalOpen && selectedCandidate && selectedCandidate.relevance_breakdown && (
+        <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
+          <div style={{ width: "540px", backgroundColor: "#0e1424", padding: "24px", borderRadius: "10px", border: "1px solid #2e3d60", color: "#fff" }}>
+            <h3 style={{ fontSize: "1.2rem", fontWeight: "700", marginBottom: "8px" }}>
+              Relevance Scoring Breakdown
+            </h3>
+            <p style={{ fontSize: "0.85rem", color: "#94a3b8", marginBottom: "16px" }}>
+              {selectedCandidate.title}
+            </p>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", fontSize: "0.85rem" }}>
-              <div className="card" style={{ padding: "12px", background: "var(--bg-dark)" }}>
-                <div style={{ color: "#94a3b8", fontSize: "0.75rem" }}>TOTAL ASSETS</div>
-                <div style={{ fontSize: "1.4rem", fontWeight: "800", color: "#f8fafc" }}>{report.total_assets}</div>
-                <div style={{ color: "#64748b", fontSize: "0.75rem" }}>Real: {report.real_assets_count} | Synthetic: {report.synthetic_assets_count}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px", fontSize: "0.85rem", marginBottom: "20px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span>Videoscope Visual Similarity:</span>
+                <strong>{selectedCandidate.relevance_breakdown.videoscope_similarity} / 30</strong>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span>Domain Match:</span>
+                <strong>{selectedCandidate.relevance_breakdown.domain_match} / 25</strong>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span>Modality Match:</span>
+                <strong>{selectedCandidate.relevance_breakdown.modality_match} / 15</strong>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span>Defect Flaw Utility:</span>
+                <strong>{selectedCandidate.relevance_breakdown.defect_utility} / 15</strong>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span>Annotation Quality:</span>
+                <strong>{selectedCandidate.relevance_breakdown.annotation_quality} / 10</strong>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid #1f293d", paddingTop: "8px" }}>
+                <span>Total Explainable Relevance:</span>
+                <strong style={{ color: "#38bdf8", fontSize: "1rem" }}>{selectedCandidate.relevance_breakdown.total_score} / 100</strong>
               </div>
 
-              <div className="card" style={{ padding: "12px", background: "var(--bg-dark)" }}>
-                <div style={{ color: "#94a3b8", fontSize: "0.75rem" }}>SAMPLES EXTRACTED</div>
-                <div style={{ fontSize: "1.4rem", fontWeight: "800", color: "#06b6d4" }}>{report.total_samples_extracted}</div>
-                <div style={{ color: "#64748b", fontSize: "0.75rem" }}>Avg Sharpness: {report.average_sharpness}</div>
-              </div>
-            </div>
-
-            <div>
-              <h4 style={{ fontSize: "0.9rem", color: "#f8fafc", marginBottom: "8px" }}>Evaluation Split Policy (Strict)</h4>
-              <div style={{ fontSize: "0.8rem", color: "#94a3b8", background: "var(--bg-dark)", padding: "10px", borderRadius: "6px", border: "1px solid var(--border-subtle)" }}>
-                {report.evaluation_split_recommendation}
-              </div>
-            </div>
-
-            <div>
-              <h4 style={{ fontSize: "0.9rem", color: "#f8fafc", marginBottom: "8px" }}>Unresolved Questions & Next Steps</h4>
-              <ul style={{ paddingLeft: "20px", fontSize: "0.8rem", color: "#94a3b8", lineHeight: "1.6" }}>
-                {report.unresolved_questions.map((q, idx) => (
-                  <li key={idx}>{q}</li>
+              <div style={{ marginTop: "10px" }}>
+                <span style={{ color: "#94a3b8", display: "block", marginBottom: "4px" }}>Score Rationale:</span>
+                {selectedCandidate.relevance_breakdown.relevance_explanations.map((exp, i) => (
+                  <div key={i} style={{ fontSize: "0.8rem", color: "#cbd5e1", marginBottom: "3px" }}>• {exp}</div>
                 ))}
-              </ul>
+              </div>
             </div>
 
             <div style={{ display: "flex", justifyContent: "flex-end" }}>
-              <button className="btn btn-secondary btn-sm" onClick={() => setIsReportOpen(false)}>Close</button>
+              <button
+                onClick={() => setIsRelevanceModalOpen(false)}
+                style={{ padding: "8px 18px", backgroundColor: "#2563eb", color: "#fff", border: "none", borderRadius: "6px", fontWeight: "700", cursor: "pointer" }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Discovery Readiness Report Modal */}
+      {isReportOpen && report && (
+        <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.8)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
+          <div style={{ width: "640px", maxHeight: "80vh", overflowY: "auto", backgroundColor: "#0e1424", padding: "28px", borderRadius: "12px", border: "1px solid #2e3d60", color: "#fff" }}>
+            <h2 style={{ fontSize: "1.3rem", fontWeight: "700", marginBottom: "8px" }}>KeeAInu Discovery Corpus Readiness Report</h2>
+            <p style={{ fontSize: "0.8rem", color: "#94a3b8", marginBottom: "20px" }}>Generated at: {new Date(report.generated_at).toLocaleString()}</p>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "20px", fontSize: "0.85rem" }}>
+              <div style={{ backgroundColor: "#161f36", padding: "12px", borderRadius: "6px" }}>
+                <span style={{ color: "#94a3b8" }}>Total Discovered Assets:</span>
+                <div style={{ fontSize: "1.4rem", fontWeight: "700", color: "#38bdf8" }}>{report.total_assets}</div>
+              </div>
+              <div style={{ backgroundColor: "#161f36", padding: "12px", borderRadius: "6px" }}>
+                <span style={{ color: "#94a3b8" }}>Real vs Synthetic:</span>
+                <div style={{ fontSize: "1rem", fontWeight: "700", color: "#4ade80" }}>
+                  {report.real_assets_count} Real / {report.synthetic_assets_count} Synth
+                </div>
+              </div>
+              <div style={{ backgroundColor: "#161f36", padding: "12px", borderRadius: "6px" }}>
+                <span style={{ color: "#94a3b8" }}>Samples Extracted:</span>
+                <div style={{ fontSize: "1.2rem", fontWeight: "700", color: "#a855f7" }}>{report.total_samples_extracted}</div>
+              </div>
+              <div style={{ backgroundColor: "#161f36", padding: "12px", borderRadius: "6px" }}>
+                <span style={{ color: "#94a3b8" }}>Avg Sharpness Score:</span>
+                <div style={{ fontSize: "1.2rem", fontWeight: "700", color: "#facc15" }}>{report.average_sharpness}</div>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: "20px" }}>
+              <h4 style={{ fontSize: "0.95rem", fontWeight: "600", marginBottom: "6px" }}>Evaluation Split Policy:</h4>
+              <p style={{ fontSize: "0.85rem", color: "#cbd5e1", backgroundColor: "#161f36", padding: "10px", borderRadius: "6px" }}>
+                {report.evaluation_split_recommendation}
+              </p>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button
+                onClick={() => setIsReportOpen(false)}
+                style={{ padding: "8px 20px", backgroundColor: "#2563eb", color: "#fff", border: "none", borderRadius: "6px", fontWeight: "700", cursor: "pointer" }}
+              >
+                Close Report
+              </button>
             </div>
           </div>
         </div>

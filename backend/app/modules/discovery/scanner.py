@@ -27,15 +27,22 @@ from backend.app.modules.discovery.profiler import (
 
 def is_synthetic_fixture_path(file_path: Path) -> bool:
     """
-    Determine if a file is a trusted synthetic test fixture based on directory provenance,
-    never based on substring guessing in the filename.
+    Determine if a file is a synthetic test fixture or procedurally generated asset
+    based on trusted directory provenance, never based on substring guessing in the filename.
     """
-    fixture_dir = (settings.DATA_DIR / "sample_fixtures").resolve()
-    try:
-        file_path.resolve().relative_to(fixture_dir)
-        return True
-    except ValueError:
-        return False
+    resolved = file_path.resolve()
+    for s_dir in [
+        settings.DATA_DIR / "sample_fixtures",
+        settings.SOURCE_FOOTAGE_DIR / "synthetic_generated",
+        settings.DATA_DIR / "synthetic"
+    ]:
+        try:
+            if s_dir.exists():
+                resolved.relative_to(s_dir.resolve())
+                return True
+        except ValueError:
+            continue
+    return False
 
 
 def _determine_sample_indices(total_frames: int, requested_count: int) -> List[int]:
@@ -63,7 +70,8 @@ def scan_and_profile_file(
     file_path: Path,
     sample_count: int = 5,
     force_rescan: bool = False,
-    source_root: Optional[Path] = None
+    source_root: Optional[Path] = None,
+    is_synthetic: Optional[bool] = None
 ) -> Dict[str, Any]:
     """
     Profile a single video or image file, extract representative samples,
@@ -85,17 +93,39 @@ def scan_and_profile_file(
     filename = resolved_path.name
     suffix = resolved_path.suffix.lower()
     asset_id = f"ast_{initial_sha256[:12]}"
+    # Check provenance strictly by directory location or explicit flag
+    is_synth = is_synthetic if is_synthetic is not None else is_synthetic_fixture_path(resolved_path)
 
     # Check if already scanned and not force_rescan
     existing = repo.get_asset(asset_id)
     if existing and not force_rescan:
+        if existing.get("is_synthetic") != is_synth:
+            # Sync synthetic status if it changed
+            repo.upsert_asset(
+                asset_id=asset_id,
+                source_path=str(resolved_path),
+                filename=filename,
+                asset_type=existing["asset_type"],
+                extension=suffix,
+                file_size_bytes=file_size,
+                sha256_hash=initial_sha256,
+                is_readable=existing["is_readable"],
+                width=existing["width"],
+                height=existing["height"],
+                duration_seconds=existing["duration_seconds"],
+                fps=existing["fps"],
+                total_frames=existing["total_frames"],
+                is_synthetic=is_synth,
+                validation_status=existing["validation_status"],
+                error_details=existing.get("error_details"),
+                contact_sheet_path=existing.get("contact_sheet_path"),
+                quality_profile_dict=existing.get("quality_profile")
+            )
+            return repo.get_asset(asset_id) # type: ignore
         return existing
 
     if existing and force_rescan:
         repo.delete_samples_for_asset(asset_id)
-
-    # Check provenance strictly by directory location
-    is_synth = is_synthetic_fixture_path(resolved_path)
 
     asset_type = "video" if suffix in settings.ALLOWED_VIDEO_EXTENSIONS else "image"
 

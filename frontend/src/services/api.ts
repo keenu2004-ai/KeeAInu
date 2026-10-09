@@ -218,3 +218,89 @@ export function getManifestUrl(): string {
   return `${API_BASE}/discovery/manifest`;
 }
 
+// Multi-Source Dataset Discovery & Controlled Acquisition API
+
+export async function fetchSourceProviders(): Promise<any[]> {
+  const res = await fetch(`${API_BASE}/acquisition/providers`);
+  if (!res.ok) throw new Error("Failed to fetch discovery providers.");
+  return res.json();
+}
+
+export async function searchDatasetCandidates(query: any): Promise<any[]> {
+  const res = await fetch(`${API_BASE}/acquisition/search`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(query),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Search failed.");
+  }
+  return res.json();
+}
+
+export async function fetchDatasetCandidates(filters?: {
+  source_id?: string;
+  domain_tag?: string;
+  license_status?: string;
+  acquisition_status?: string;
+  direct_videoscope_only?: boolean;
+}): Promise<any[]> {
+  const query = new URLSearchParams();
+  if (filters?.source_id) query.append("source_id", filters.source_id);
+  if (filters?.domain_tag) query.append("domain_tag", filters.domain_tag);
+  if (filters?.license_status) query.append("license_status", filters.license_status);
+  if (filters?.acquisition_status) query.append("acquisition_status", filters.acquisition_status);
+  if (filters?.direct_videoscope_only) query.append("direct_videoscope_only", "true");
+
+  const res = await fetch(`${API_BASE}/acquisition/candidates?${query.toString()}`);
+  if (!res.ok) throw new Error("Failed to fetch dataset candidates.");
+  return res.json();
+}
+
+export async function submitLicenseReview(candidateId: string, data: any): Promise<any> {
+  const res = await fetch(`${API_BASE}/acquisition/candidates/${candidateId}/license-review`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "License review submission failed.");
+  }
+  return res.json();
+}
+
+export async function acquireDatasetCandidate(candidateId: string, data: any): Promise<any> {
+  const res = await fetch(`${API_BASE}/acquisition/candidates/${candidateId}/acquire`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Dataset acquisition failed.");
+  }
+  return res.json();
+}
+
+export async function generateSyntheticMedia(data: any): Promise<any> {
+  const res = await fetch(`${API_BASE}/acquisition/synthetic/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Synthetic generation failed.");
+  }
+  return res.json();
+}
+
+export async function fetchAcquisitionAuditTrail(): Promise<any[]> {
+  const res = await fetch(`${API_BASE}/acquisition/audit-trail`);
+  if (!res.ok) throw new Error("Failed to fetch acquisition audit trail.");
+  return res.json();
+}
+
+

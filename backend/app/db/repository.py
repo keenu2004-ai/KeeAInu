@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Dict, Any
@@ -149,6 +150,95 @@ class InspectionRepository:
                 reviewer_notes TEXT,
                 reviewed_by TEXT,
                 reviewed_at TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (asset_id) REFERENCES dataset_assets(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS dataset_sources (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                category TEXT NOT NULL,
+                base_url TEXT,
+                is_enabled INTEGER NOT NULL DEFAULT 1,
+                auth_configured INTEGER NOT NULL DEFAULT 0,
+                rate_limit_per_min INTEGER NOT NULL DEFAULT 60,
+                description TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS dataset_candidates (
+                id TEXT PRIMARY KEY,
+                source_id TEXT NOT NULL,
+                provider_name TEXT NOT NULL,
+                title TEXT NOT NULL,
+                publisher TEXT NOT NULL,
+                external_id TEXT,
+                canonical_url TEXT NOT NULL,
+                landing_page_url TEXT,
+                domain_tag TEXT NOT NULL,
+                is_direct_videoscope INTEGER NOT NULL DEFAULT 0,
+                modalities_json TEXT NOT NULL,
+                approximate_size_bytes INTEGER,
+                file_count INTEGER,
+                annotation_types_json TEXT NOT NULL,
+                license_identifier TEXT NOT NULL,
+                license_url TEXT,
+                license_status TEXT NOT NULL,
+                commercial_use_allowed INTEGER NOT NULL DEFAULT 0,
+                attribution_required INTEGER NOT NULL DEFAULT 1,
+                relevance_score REAL NOT NULL,
+                relevance_breakdown_json TEXT,
+                description TEXT,
+                limitations_notes TEXT,
+                acquisition_status TEXT NOT NULL DEFAULT 'DISCOVERED',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS source_license_reviews (
+                id TEXT PRIMARY KEY,
+                candidate_id TEXT NOT NULL,
+                reviewed_by TEXT NOT NULL,
+                decision_status TEXT NOT NULL,
+                commercial_rights_status TEXT NOT NULL,
+                license_notes TEXT,
+                terms_url TEXT,
+                reviewed_at TEXT NOT NULL,
+                FOREIGN KEY (candidate_id) REFERENCES dataset_candidates(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS acquisition_jobs (
+                id TEXT PRIMARY KEY,
+                candidate_id TEXT,
+                job_type TEXT NOT NULL,
+                status TEXT NOT NULL,
+                target_directory TEXT NOT NULL,
+                bytes_downloaded INTEGER NOT NULL DEFAULT 0,
+                files_acquired INTEGER NOT NULL DEFAULT 0,
+                error_message TEXT,
+                created_by TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS acquisition_events (
+                id TEXT PRIMARY KEY,
+                job_id TEXT,
+                candidate_id TEXT,
+                event_type TEXT NOT NULL,
+                details_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS asset_provenance_links (
+                id TEXT PRIMARY KEY,
+                asset_id TEXT NOT NULL,
+                candidate_id TEXT,
+                parent_asset_id TEXT,
+                provenance_type TEXT NOT NULL,
+                generator_info_json TEXT,
+                generation_params_json TEXT,
                 created_at TEXT NOT NULL,
                 FOREIGN KEY (asset_id) REFERENCES dataset_assets(id) ON DELETE CASCADE
             );
@@ -741,6 +831,326 @@ class InspectionRepository:
                 "generated_at": datetime.now(timezone.utc).isoformat()
             }
 
+    # --- Multi-Source Discovery & Controlled Acquisition Operations ---
+
+    def upsert_candidate(self, candidate_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Insert or update a discovered candidate dataset record."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO dataset_candidates (
+                    id, source_id, provider_name, title, publisher, external_id,
+                    canonical_url, landing_page_url, domain_tag, is_direct_videoscope,
+                    modalities_json, approximate_size_bytes, file_count, annotation_types_json,
+                    license_identifier, license_url, license_status, commercial_use_allowed,
+                    attribution_required, relevance_score, relevance_breakdown_json,
+                    description, limitations_notes, acquisition_status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    title=excluded.title,
+                    publisher=excluded.publisher,
+                    canonical_url=excluded.canonical_url,
+                    landing_page_url=excluded.landing_page_url,
+                    domain_tag=excluded.domain_tag,
+                    is_direct_videoscope=excluded.is_direct_videoscope,
+                    modalities_json=excluded.modalities_json,
+                    approximate_size_bytes=excluded.approximate_size_bytes,
+                    file_count=excluded.file_count,
+                    annotation_types_json=excluded.annotation_types_json,
+                    license_identifier=excluded.license_identifier,
+                    license_url=excluded.license_url,
+                    license_status=excluded.license_status,
+                    commercial_use_allowed=excluded.commercial_use_allowed,
+                    attribution_required=excluded.attribution_required,
+                    relevance_score=excluded.relevance_score,
+                    relevance_breakdown_json=excluded.relevance_breakdown_json,
+                    description=excluded.description,
+                    limitations_notes=excluded.limitations_notes,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    candidate_data["id"],
+                    candidate_data["source_id"],
+                    candidate_data["provider_name"],
+                    candidate_data["title"],
+                    candidate_data["publisher"],
+                    candidate_data.get("external_id"),
+                    candidate_data["canonical_url"],
+                    candidate_data.get("landing_page_url"),
+                    candidate_data["domain_tag"],
+                    1 if candidate_data.get("is_direct_videoscope") else 0,
+                    json.dumps(candidate_data.get("modalities", [])),
+                    candidate_data.get("approximate_size_bytes"),
+                    candidate_data.get("file_count"),
+                    json.dumps(candidate_data.get("annotation_types", [])),
+                    candidate_data["license_identifier"],
+                    candidate_data.get("license_url"),
+                    candidate_data.get("license_status", "LICENSE_UNKNOWN"),
+                    1 if candidate_data.get("commercial_use_allowed") else 0,
+                    1 if candidate_data.get("attribution_required", True) else 0,
+                    candidate_data.get("relevance_score", 0.0),
+                    json.dumps(candidate_data.get("relevance_breakdown", {})),
+                    candidate_data.get("description"),
+                    candidate_data.get("limitations_notes"),
+                    candidate_data.get("acquisition_status", "DISCOVERED"),
+                    candidate_data.get("created_at", now),
+                    now
+                )
+            )
+        return self.get_candidate(candidate_data["id"]) # type: ignore
+
+    def get_candidate(self, candidate_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve full details of a candidate dataset."""
+        with self._get_connection() as conn:
+            cursor = conn.execute("SELECT * FROM dataset_candidates WHERE id = ?", (candidate_id,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            c = dict(row)
+            c["is_direct_videoscope"] = bool(c["is_direct_videoscope"])
+            c["commercial_use_allowed"] = bool(c["commercial_use_allowed"])
+            c["attribution_required"] = bool(c["attribution_required"])
+            c["modalities"] = json.loads(c.get("modalities_json") or "[]")
+            c["annotation_types"] = json.loads(c.get("annotation_types_json") or "[]")
+            if c.get("relevance_breakdown_json"):
+                try:
+                    c["relevance_breakdown"] = json.loads(c["relevance_breakdown_json"])
+                except Exception:
+                    c["relevance_breakdown"] = None
+            return c
+
+    def list_candidates(
+        self,
+        source_id: Optional[str] = None,
+        domain_tag: Optional[str] = None,
+        license_status: Optional[str] = None,
+        acquisition_status: Optional[str] = None,
+        direct_videoscope_only: Optional[bool] = None,
+        skip: int = 0,
+        limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """List candidate datasets with multi-attribute filtering."""
+        query = "SELECT * FROM dataset_candidates WHERE 1=1"
+        params: List[Any] = []
+
+        if source_id:
+            query += " AND source_id = ?"
+            params.append(source_id)
+        if domain_tag:
+            query += " AND domain_tag = ?"
+            params.append(domain_tag)
+        if license_status:
+            query += " AND license_status = ?"
+            params.append(license_status)
+        if acquisition_status:
+            query += " AND acquisition_status = ?"
+            params.append(acquisition_status)
+        if direct_videoscope_only:
+            query += " AND is_direct_videoscope = 1"
+
+        query += " ORDER BY relevance_score DESC, created_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, skip])
+
+        with self._get_connection() as conn:
+            cursor = conn.execute(query, tuple(params))
+            results = []
+            for r in cursor.fetchall():
+                c = dict(r)
+                c["is_direct_videoscope"] = bool(c["is_direct_videoscope"])
+                c["commercial_use_allowed"] = bool(c["commercial_use_allowed"])
+                c["attribution_required"] = bool(c["attribution_required"])
+                c["modalities"] = json.loads(c.get("modalities_json") or "[]")
+                c["annotation_types"] = json.loads(c.get("annotation_types_json") or "[]")
+                if c.get("relevance_breakdown_json"):
+                    try:
+                        c["relevance_breakdown"] = json.loads(c["relevance_breakdown_json"])
+                    except Exception:
+                        c["relevance_breakdown"] = None
+                results.append(c)
+            return results
+
+    def record_license_review(
+        self,
+        candidate_id: str,
+        license_status: str,
+        commercial_rights_status: str,
+        license_notes: Optional[str],
+        terms_url: Optional[str],
+        reviewed_by: str
+    ) -> Dict[str, Any]:
+        """Record formal human license audit for a candidate."""
+        candidate = self.get_candidate(candidate_id)
+        if not candidate:
+            raise KeyError(f"Candidate '{candidate_id}' not found.")
+
+        now = datetime.now(timezone.utc).isoformat()
+        review_id = f"lrev_{uuid.uuid4().hex[:12]}" if "uuid" in globals() else f"lrev_{now[:10]}"
+
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO source_license_reviews (
+                    id, candidate_id, reviewed_by, decision_status,
+                    commercial_rights_status, license_notes, terms_url, reviewed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (review_id, candidate_id, reviewed_by, license_status, commercial_rights_status, license_notes, terms_url, now)
+            )
+
+            comm_ok = 1 if commercial_rights_status.upper() == "ALLOWED" else 0
+            conn.execute(
+                """
+                UPDATE dataset_candidates
+                SET license_status = ?,
+                    commercial_use_allowed = ?,
+                    acquisition_status = 'LICENSE_REVIEWED',
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (license_status, comm_ok, now, candidate_id)
+            )
+
+        return self.get_candidate(candidate_id) # type: ignore
+
+    def create_acquisition_job(
+        self,
+        job_id: str,
+        candidate_id: Optional[str],
+        job_type: str,
+        target_directory: str,
+        created_by: str
+    ) -> Dict[str, Any]:
+        """Create and track an acquisition or synthetic generation job."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO acquisition_jobs (
+                    id, candidate_id, job_type, status, target_directory,
+                    bytes_downloaded, files_acquired, error_message, created_by, created_at, updated_at
+                ) VALUES (?, ?, ?, 'PENDING', ?, 0, 0, NULL, ?, ?, ?)
+                """,
+                (job_id, candidate_id, job_type, target_directory, created_by, now, now)
+            )
+        return self.get_acquisition_job(job_id) # type: ignore
+
+    def update_acquisition_job(
+        self,
+        job_id: str,
+        status: str,
+        bytes_downloaded: int = 0,
+        files_acquired: int = 0,
+        error_message: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Update progress or completion state of an acquisition job."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                UPDATE acquisition_jobs
+                SET status = ?,
+                    bytes_downloaded = ?,
+                    files_acquired = ?,
+                    error_message = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (status, bytes_downloaded, files_acquired, error_message, now, job_id)
+            )
+        return self.get_acquisition_job(job_id) # type: ignore
+
+    def get_acquisition_job(self, job_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve acquisition job status by ID."""
+        with self._get_connection() as conn:
+            cursor = conn.execute("SELECT * FROM acquisition_jobs WHERE id = ?", (job_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def list_acquisition_jobs(self, skip: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
+        """List acquisition jobs chronologically."""
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT * FROM acquisition_jobs ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                (limit, skip)
+            )
+            return [dict(r) for r in cursor.fetchall()]
+
+    def record_audit_event(
+        self,
+        event_type: str,
+        details: Dict[str, Any],
+        job_id: Optional[str] = None,
+        candidate_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Record an immutable compliance and provenance audit event."""
+        now = datetime.now(timezone.utc).isoformat()
+        event_id = f"aev_{uuid.uuid4().hex[:12]}" if "uuid" in globals() else f"aev_{now[:10]}"
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO acquisition_events (id, job_id, candidate_id, event_type, details_json, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (event_id, job_id, candidate_id, event_type, json.dumps(details), now)
+            )
+        return {
+            "id": event_id,
+            "job_id": job_id,
+            "candidate_id": candidate_id,
+            "event_type": event_type,
+            "details": details,
+            "created_at": now
+        }
+
+    def list_audit_events(self, skip: int = 0, limit: int = 100) -> List[Dict[str, Any]]:
+        """List compliance audit trail events."""
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT * FROM acquisition_events ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                (limit, skip)
+            )
+            events = []
+            for r in cursor.fetchall():
+                e = dict(r)
+                e["details"] = json.loads(e.get("details_json") or "{}")
+                events.append(e)
+            return events
+
+    def record_provenance_link(
+        self,
+        asset_id: str,
+        provenance_type: str,
+        candidate_id: Optional[str] = None,
+        parent_asset_id: Optional[str] = None,
+        generator_info: Optional[Dict[str, Any]] = None,
+        generation_params: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Link an ingested or synthetic asset to its lineage origin."""
+        now = datetime.now(timezone.utc).isoformat()
+        link_id = f"prv_{uuid.uuid4().hex[:12]}" if "uuid" in globals() else f"prv_{now[:10]}"
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO asset_provenance_links (
+                    id, asset_id, candidate_id, parent_asset_id,
+                    provenance_type, generator_info_json, generation_params_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    link_id,
+                    asset_id,
+                    candidate_id,
+                    parent_asset_id,
+                    provenance_type,
+                    json.dumps(generator_info or {}),
+                    json.dumps(generation_params or {}),
+                    now
+                )
+            )
+        return {"id": link_id, "asset_id": asset_id, "provenance_type": provenance_type, "created_at": now}
+
 
 repo = InspectionRepository()
+
 

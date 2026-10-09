@@ -101,3 +101,19 @@ This document tracks foundational architectural decisions, context, consequences
   - Phase 6 introduces verified hardware adapters only after physical documentation and capture card/UVC signal validation.
   - No speculative hardware protocols will be implemented without verified hardware specifications.
 - **Consequences**: Eliminates hardware speculation; prevents bugs from untested communication protocols.
+
+---
+
+## ADR-0008: Multi-Source Dataset Discovery & Controlled Acquisition Architecture
+
+- **Status**: Accepted
+- **Date**: 2026-10-09
+- **Context**: Borescope inspection footage is scarce and varies across candidate domains (Mechanical, Pipes, Mould Cavities). Uncontrolled web scraping, untracked synthetic data, and license ambiguities risk legal violations and data leakage.
+- **Decision**:
+  - Implement a pluggable `BaseSourceProvider` architecture supporting public catalogs (Hugging Face, Kaggle, Google Dataset Search, Data.gov, AWS Open Data, GitHub Research), internal sandboxed storage, and procedural synthetic generators.
+  - Implement an explainable multi-factor relevance scoring engine ($0-100$) that evaluates videoscope visual similarity, domain match, modality, defect utility, annotation quality, and provenance completeness.
+  - Enforce a **hard legal license and permission gate** (`APPROVED_FOR_EVALUATION`, `APPROVED_FOR_NONCOMMERCIAL_RESEARCH`, `COMMERCIAL_USE_REVIEW_REQUIRED`, `ACCESS_RESTRICTED`, `DOWNLOAD_NOT_AUTHORIZED`, `REJECTED`). Downloads are prohibited without explicit recorded approval.
+  - Protect remote fetches with SSRF prevention (rejecting loopback, link-local metadata, and private IP blocks) and bounded size/timeout limits.
+  - Isolate synthetic data with explicit `is_synthetic = True` flags, deterministic seeds, generation parameters, and parent-source linkage.
+- **Consequences**: Enables systematic data acquisition across multiple open and internal sources with guaranteed evidence integrity, legal compliance, and zero unverified AI model contamination.
+
