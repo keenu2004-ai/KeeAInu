@@ -27,6 +27,19 @@ python scripts/dataset_pipeline/audit_archive.py \
 
 The audit reads ZIP member names and metadata without extracting files, rejects path traversal entries and encrypted archives, applies file-count/expanded-size limits, hashes the original archive, and produces a JSON inventory of image/label files. It does not execute archive content or alter the input archive.
 
+## Validate an extracted YOLO detection dataset
+
+After downloading and extracting a reviewed export into local storage, validate it before training:
+
+```bash
+python scripts/dataset_pipeline/validate_yolo_dataset.py \
+  --root /absolute/path/to/extracted-dataset \
+  --class-count 5 \
+  --output data/external_datasets/audits/borescope-yolo-validation.json
+```
+
+The validator checks image/label pairing, normalized YOLO detection rows, optional class ID bounds, missing/orphan labels, exact duplicate images and exact duplicates across split directories. It rejects segmentation polygon rows rather than misreading them as boxes. It does not determine whether a label visually matches its image.
+
 ## Important limits
 
 - Public catalog counts shown in source listings are provisional until the downloaded release is inspected.
