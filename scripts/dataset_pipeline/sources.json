@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "purpose": "Candidate dataset registry for KeeAInu local preparation. Counts and labels are preliminary leads and must be checked against a downloaded release.",
+  "sources": [
+    {
+      "id": "borescope-2245",
+      "name": "Borescope",
+      "url": "https://universe.roboflow.com/class-ipagk/borescope",
+      "reported_images": 2245,
+      "reported_task": "object-detection",
+      "reported_classes": ["Chipping", "Dirt", "Pitting", "Rusting", "ThermalCracking"],
+      "license_review_status": "pending",
+      "commercial_training_allowed": null,
+      "notes": "Best initial domain-matching candidate. Verify annotation export format, publisher terms, and the license that applies to the exact version before use."
+    },
+    {
+      "id": "corrosion-inspection-547",
+      "name": "Corrosion Inspection",
+      "url": "https://universe.roboflow.com/computervision-a8zib/corrosion-inspection",
+      "reported_images": 547,
+      "reported_task": "classification-or-detection-to-verify",
+      "reported_classes": ["mild", "moderate", "severe"],
+      "license_review_status": "pending",
+      "commercial_training_allowed": null,
+      "notes": "Candidate for a separate corrosion severity experiment; confirm actual label schema before mapping classes."
+    },
+    {
+      "id": "defect-segmentation-98",
+      "name": "Defect Segmentation",
+      "url": "https://universe.roboflow.com/windy-9zzuy/defect-segmentation-5qg3p",
+      "reported_images": 98,
+      "reported_task": "segmentation-to-verify",
+      "reported_classes": ["Corrosion", "Crack", "Stain", "defects"],
+      "license_review_status": "pending",
+      "commercial_training_allowed": null,
+      "notes": "Small candidate for checking mask format and running a segmentation proof of concept, not enough by itself for production claims."
+    }
+  ]
+}
