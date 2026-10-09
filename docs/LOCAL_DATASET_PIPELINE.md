@@ -18,6 +18,12 @@ See `scripts/dataset_pipeline/sources.json`. The historical image counts and cla
 - JSON report kept in a caller-selected output directory; raw archive is not modified or extracted.
 - Unit tests for the archive auditor.
 
+## Dataset registry and label-validation milestone
+
+The registry records public page metadata and keeps license review pending. Publicly displayed CC BY 4.0 metadata is evidence to review, not a blanket determination that every file or intended commercial use is cleared. Preserve source attribution and the exact dataset version in the audit trail.
+
+The YOLO object-detection validator is available at `scripts/dataset_pipeline/validate_yolo_dataset.py`. Run it against an extracted dataset in local storage. It catches structural errors and exact duplicate images across split directories; it deliberately does not accept segmentation polygons or declare data training-ready.
+
 ## Next milestone
 
 Once specific downloaded archives and their licenses are verified:
