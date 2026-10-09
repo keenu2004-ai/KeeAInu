@@ -48,11 +48,13 @@ out/
 # Media Evidence Vault & Storage (Raw footage must never be committed)
 data/media/raw/*
 data/media/derived/*
+data/source_footage/*
 data/artifacts/*
 data/db/*.sqlite
 data/db/*.db
 !data/media/raw/.gitkeep
 !data/media/derived/.gitkeep
+!data/source_footage/.gitkeep
 !data/artifacts/.gitkeep
 !data/db/.gitkeep
 

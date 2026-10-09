@@ -119,3 +119,102 @@ export function getThumbnailContentUrl(mediaId: string, thumbId: string): string
 export function getFrameContentUrl(mediaId: string, frameIndex: number): string {
   return `${API_BASE}/media/${mediaId}/frames/${frameIndex}`;
 }
+
+// --- Discovery & Profiling API (Phase 4A) ---
+
+export async function triggerDiscoveryScan(data: {
+  source_directory?: string;
+  sample_count_per_video?: number;
+  force_rescan?: boolean;
+}): Promise<{ status: string; scanned_count: number; summary: any }> {
+  const res = await fetch(`${API_BASE}/discovery/scan`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Discovery scan failed.");
+  }
+  return res.json();
+}
+
+export async function fetchDiscoveredAssets(params?: {
+  domain?: string;
+  is_synthetic?: boolean;
+}): Promise<any[]> {
+  const query = new URLSearchParams();
+  if (params?.domain) query.append("domain", params.domain);
+  if (params?.is_synthetic !== undefined) query.append("is_synthetic", String(params.is_synthetic));
+
+  const res = await fetch(`${API_BASE}/discovery/assets?${query.toString()}`);
+  if (!res.ok) throw new Error("Failed to fetch discovered assets.");
+  return res.json();
+}
+
+export async function fetchDiscoveredAsset(assetId: string): Promise<any> {
+  const res = await fetch(`${API_BASE}/discovery/assets/${assetId}`);
+  if (!res.ok) throw new Error("Failed to fetch asset details.");
+  return res.json();
+}
+
+export async function updateAssetDomain(
+  assetId: string,
+  data: {
+    domain_assignment: string;
+    domain_confidence: string;
+    domain_notes?: string;
+    reviewed_by: string;
+  }
+): Promise<any> {
+  const res = await fetch(`${API_BASE}/discovery/assets/${assetId}/domain`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to update domain assignment.");
+  }
+  return res.json();
+}
+
+export async function updateSampleReview(
+  sampleId: string,
+  data: {
+    review_status: string;
+    suspected_category?: string;
+    reviewer_notes?: string;
+    reviewed_by: string;
+  }
+): Promise<any> {
+  const res = await fetch(`${API_BASE}/discovery/samples/${sampleId}/review`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to update sample review.");
+  }
+  return res.json();
+}
+
+export async function fetchDiscoveryReport(): Promise<any> {
+  const res = await fetch(`${API_BASE}/discovery/report`);
+  if (!res.ok) throw new Error("Failed to fetch discovery report.");
+  return res.json();
+}
+
+export function getContactSheetUrl(assetId: string): string {
+  return `${API_BASE}/discovery/assets/${assetId}/contact-sheet`;
+}
+
+export function getSampleImageUrl(sampleId: string): string {
+  return `${API_BASE}/discovery/samples/${sampleId}/content`;
+}
+
+export function getManifestUrl(): string {
+  return `${API_BASE}/discovery/manifest`;
+}
+

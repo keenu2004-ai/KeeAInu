@@ -1,0 +1,3 @@
+# KeeAInu Source Footage Ingestion Folder
+# Users can place external videoscope videos and images here for automated discovery & profiling.
+# Raw files placed here will NOT be tracked in Git.

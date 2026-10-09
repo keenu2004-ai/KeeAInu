@@ -3,10 +3,12 @@ import { Header } from "./components/Header";
 import { SessionList } from "./components/SessionList";
 import { CreateSessionModal } from "./components/CreateSessionModal";
 import { InspectionWorkspace } from "./components/InspectionWorkspace";
+import { DatasetDiscoveryView } from "./components/DatasetDiscoveryView";
 import { InspectionSession } from "./types/inspection";
 import { fetchSessions, fetchSession } from "./services/api";
 
 export const App: React.FC = () => {
+  const [activeTab, setActiveTab] = useState<"INSPECTIONS" | "DISCOVERY">("INSPECTIONS");
   const [sessions, setSessions] = useState<InspectionSession[]>([]);
   const [activeSession, setActiveSession] = useState<InspectionSession | null>(null);
   const [isNewSessionOpen, setIsNewSessionOpen] = useState(false);
@@ -32,15 +34,18 @@ export const App: React.FC = () => {
     try {
       const fullSession = await fetchSession(session.id);
       setActiveSession(fullSession);
+      setActiveTab("INSPECTIONS");
     } catch (err: any) {
       console.error(err);
       setActiveSession(session);
+      setActiveTab("INSPECTIONS");
     }
   };
 
   const handleSessionCreated = (newSession: InspectionSession) => {
     setSessions((prev) => [newSession, ...prev]);
     setActiveSession(newSession);
+    setActiveTab("INSPECTIONS");
   };
 
   const handleSessionUpdated = (updated: InspectionSession) => {
@@ -53,6 +58,13 @@ export const App: React.FC = () => {
   return (
     <div className="app-container">
       <Header
+        activeTab={activeTab}
+        onTabChange={(tab) => {
+          setActiveTab(tab);
+          if (tab === "DISCOVERY") {
+            setActiveSession(null);
+          }
+        }}
         onNewSession={() => setIsNewSessionOpen(true)}
         onRefresh={() => {
           loadSessions();
@@ -65,7 +77,9 @@ export const App: React.FC = () => {
       />
 
       <main className="main-content">
-        {activeSession ? (
+        {activeTab === "DISCOVERY" ? (
+          <DatasetDiscoveryView />
+        ) : activeSession ? (
           <InspectionWorkspace
             session={activeSession}
             onSessionUpdated={handleSessionUpdated}

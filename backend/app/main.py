@@ -26,12 +26,14 @@ from backend.app.api.sessions import router as sessions_router
 from backend.app.api.media import router as media_router
 from backend.app.api.inference import router as inference_router
 from backend.app.api.reviews import router as reviews_router
+from backend.app.api.discovery import router as discovery_router
 
 # Include API v1 Routers
 app.include_router(sessions_router, prefix=settings.API_V1_PREFIX)
 app.include_router(media_router, prefix=settings.API_V1_PREFIX)
 app.include_router(inference_router, prefix=settings.API_V1_PREFIX)
 app.include_router(reviews_router, prefix=settings.API_V1_PREFIX)
+app.include_router(discovery_router, prefix=settings.API_V1_PREFIX)
 
 
 @app.get("/health", tags=["Health"])
