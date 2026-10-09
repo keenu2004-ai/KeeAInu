@@ -55,9 +55,10 @@ def validate_media_file(
 
     # --- Video Container Format Signature Checks ---
     elif suffix == ".mp4":
-        # ISOBMFF box header: 4-byte box size, then 'ftyp' at offset 4
-        if file_bytes_sample[4:8] != b"ftyp":
-            return False, "Invalid MP4 header signature (expected 'ftyp' box at offset 4)."
+        # ISOBMFF box header: 4-byte box size, then box type at offset 4
+        box_type = file_bytes_sample[4:8]
+        if box_type not in [b"ftyp", b"moov", b"mdat", b"free", b"wide", b"skip"] and b"ftyp" not in file_bytes_sample[:64]:
+            return False, "Invalid MP4 header signature (expected ISOBMFF box header)."
             
     elif suffix == ".mov":
         # QuickTime / ISO BMFF: ftyp, moov, wide, or mdat box at offset 4

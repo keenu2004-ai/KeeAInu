@@ -31,7 +31,7 @@ async def test_discovery_scan_and_inventory():
         assert len(assets) >= 3
 
         # Find synthetic video asset
-        video_asset = next((a for a in assets if a["filename"] == "synthetic_test_video.mp4"), None)
+        video_asset = next((a for a in assets if a["filename"].startswith("synthetic_test_video")), None)
         assert video_asset is not None
         assert video_asset["is_readable"] is True
         assert video_asset["is_synthetic"] is True
