@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "purpose": "Candidate dataset registry for KeeAInu local preparation. Public page metadata was checked on 2026-10-09; exact downloadable release contents and underlying rights still require human review.",
+  "checked_at": "2026-10-09",
+  "sources": [
+    {
+      "id": "borescope",
+      "name": "Borescope",
+      "url": "https://universe.roboflow.com/class-ipagk/borescope",
+      "reported_images": 2245,
+      "reported_task": "object-detection",
+      "reported_classes": [
+        "Chipping",
+        "Dirt",
+        "Pitting",
+        "Rusting",
+        "ThermalCracking"
+      ],
+      "displayed_license": "CC-BY-4.0",
+      "license_evidence_url": "https://universe.roboflow.com/class-ipagk/borescope",
+      "license_evidence_checked_at": "2026-10-09",
+      "license_review_status": "pending_human_review",
+      "commercial_training_allowed": null,
+      "attribution_required": true,
+      "notes": "Highest-priority direct borescope candidate. Public page displays CC BY 4.0. Verify the exact downloaded version, any third-party material, label quality, and attribution before use."
+    },
+    {
+      "id": "corrosion-inspection",
+      "name": "Corrosion Inspection",
+      "url": "https://universe.roboflow.com/computervision-a8zib/corrosion-inspection",
+      "reported_images": 547,
+      "reported_task": "object-detection",
+      "reported_classes": [
+        "corroded-part",
+        "mild-corrosion",
+        "moderate-corrosion",
+        "severe-corrosion"
+      ],
+      "displayed_license": "CC-BY-4.0",
+      "license_evidence_url": "https://universe.roboflow.com/computervision-a8zib/corrosion-inspection",
+      "license_evidence_checked_at": "2026-10-09",
+      "license_review_status": "pending_human_review",
+      "commercial_training_allowed": null,
+      "attribution_required": true,
+      "notes": "Separate corrosion/severity experiment. Public page displays object-detection and CC BY 4.0. Verify label definitions and severity consistency before combining with other sources."
+    },
+    {
+      "id": "defect-segmentation",
+      "name": "Defect Segmentation",
+      "url": "https://universe.roboflow.com/windy-9zzuy/defect-segmentation-5qg3p",
+      "reported_images": 87,
+      "reported_task": "instance-segmentation",
+      "reported_classes": [
+        "Crack",
+        "Corrosion",
+        "Stain",
+        "defects"
+      ],
+      "displayed_license": "CC-BY-4.0",
+      "license_evidence_url": "https://universe.roboflow.com/windy-9zzuy/defect-segmentation-5qg3p",
+      "license_evidence_checked_at": "2026-10-09",
+      "license_review_status": "pending_human_review",
+      "commercial_training_allowed": null,
+      "attribution_required": true,
+      "notes": "Small instance-segmentation candidate. Public page currently reports 87 images and displays CC BY 4.0. Use for format/proof-of-concept checks, not production generalization claims."
+    },
+    {
+      "id": "detect-corrosion-instance-segmentation",
+      "name": "Detect Corrosion IS",
+      "url": "https://universe.roboflow.com/computervision-a8zib/detect_corrosion_is",
+      "reported_images": 2236,
+      "reported_task": "instance-segmentation",
+      "reported_classes": [
+        "corrosion"
+      ],
+      "displayed_license": "CC-BY-4.0",
+      "license_evidence_url": "https://universe.roboflow.com/computervision-a8zib/detect_corrosion_is",
+      "license_evidence_checked_at": "2026-10-09",
+      "license_review_status": "pending_human_review",
+      "commercial_training_allowed": null,
+      "attribution_required": true,
+      "notes": "Corrosion instance-segmentation candidate. Project page reports 978 images for its base listing, while version v5 lists 2,236 images; select and pin an exact export version before acquisition. Public page displays CC BY 4.0. Verify third-party rights, annotation quality, and the intended use before training.",
+      "project_page_images": 978,
+      "latest_version_id": "v5",
+      "latest_version_generated_at": "2023-12-19"
+    },
+    {
+      "id": "corrosion-segmentation-semantic",
+      "name": "Dataset Corrosion Segment",
+      "url": "https://universe.roboflow.com/computervision-a8zib/dataset-corrosion-segment",
+      "reported_images": 978,
+      "reported_task": "semantic-segmentation",
+      "reported_classes": [
+        "corrosion"
+      ],
+      "displayed_license": "CC BY 4.0",
+      "license_evidence_url": "https://universe.roboflow.com/computervision-a8zib/dataset-corrosion-segment",
+      "license_evidence_checked_at": "2026-10-09",
+      "license_review_status": "pending_human_review",
+      "commercial_training_allowed": null,
+      "attribution_required": true,
+      "notes": "Alternative corrosion mask candidate. Confirm exact version count, segmentation export format, third-party material, and intended-use rights before acquisition."
+    }
+  ]
+}
