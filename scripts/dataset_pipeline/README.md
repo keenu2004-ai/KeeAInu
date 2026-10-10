@@ -40,6 +40,22 @@ python scripts/dataset_pipeline/validate_yolo_dataset.py \
 
 The validator checks image/label pairing, normalized YOLO detection rows, optional class ID bounds, missing/orphan labels, exact duplicate images and exact duplicates across split directories. It rejects segmentation polygon rows rather than misreading them as boxes. It does not determine whether a label visually matches its image.
 
+## Fail-closed training readiness checklist
+
+Copy `manifest.template.json` to a private/local review file and fill in the exact dataset export version, archive SHA-256 from the audit report, license and intended-use decision, attribution, reviewer, task/class mapping, annotation review, and split review. Keep pending fields pending until a human has actually reviewed them.
+
+Run the gate after the archive audit and (for object detection) the YOLO structural validator:
+
+```bash
+python scripts/dataset_pipeline/training_gate.py \
+  --audit data/external_datasets/audits/borescope-2245/dataset_audit.json \
+  --manifest /absolute/path/to/borescope-review-manifest.json \
+  --validation data/external_datasets/audits/borescope-yolo-validation.json \
+  --output data/external_datasets/audits/borescope-training-gate.json
+```
+
+Exit code `0` means the documented checklist passed; exit code `1` means training is blocked; exit code `2` means an input could not be read. A passed result is still a checklist, not independent legal advice, proof that labels are correct, or a production/safety certification. Do not treat it as automatic authorization to train or deploy.
+
 ## Important limits
 
 - Public catalog counts shown in source listings are provisional until the downloaded release is inspected.
