@@ -4,7 +4,7 @@
 
 KeeAInu owns its own dataset inventory, normalization, model interface, evaluation, and inference runtime. External annotation or hosted-inference platforms are optional tools, not runtime dependencies.
 
-The current repository already has controlled acquisition, license gating, source provenance, quality profiling, and a pluggable inference registry. This milestone adds a local audit utility and a registry of the three candidate public datasets discussed for the first vision baseline.
+The current repository already has controlled acquisition, license gating, source provenance, quality profiling, and a pluggable inference registry. This milestone adds a local audit utility and a registry of five candidate public datasets/tasks discussed for the first vision baseline.
 
 ## Candidate datasets (verification pending)
 
@@ -22,7 +22,7 @@ See `scripts/dataset_pipeline/sources.json`. The historical image counts and cla
 
 The registry records public page metadata and keeps license review pending. Publicly displayed CC BY 4.0 metadata is evidence to review, not a blanket determination that every file or intended commercial use is cleared. Preserve source attribution and the exact dataset version in the audit trail.
 
-The YOLO object-detection validator is available at `scripts/dataset_pipeline/validate_yolo_dataset.py`. Run it against an extracted dataset in local storage. It catches structural errors and exact duplicate images across split directories; it deliberately does not accept segmentation polygons or declare data training-ready.
+The YOLO object-detection validator is available at `scripts/dataset_pipeline/validate_yolo_dataset.py`. Run it against an extracted dataset in local storage. It catches structural errors (including normalized boxes whose rectangles extend beyond image edges) and exact duplicate images across split directories; it deliberately does not accept segmentation polygons or declare data training-ready.
 
 ## Next milestone
 
