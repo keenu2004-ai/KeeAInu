@@ -51,6 +51,14 @@ def parse_detection_label(path: Path, class_count: int | None) -> list[str]:
                 errors.append(f"line_{line_number}:coordinate_out_of_range")
             if coords[2] <= 0 or coords[3] <= 0:
                 errors.append(f"line_{line_number}:non_positive_box_size")
+            # YOLO center/size values can each be normalized while the resulting
+            # rectangle still extends beyond the image. Flag those boxes too.
+            x_center, y_center, width, height = coords
+            if width > 0 and height > 0:
+                if x_center - width / 2 < 0 or x_center + width / 2 > 1:
+                    errors.append(f"line_{line_number}:box_exceeds_horizontal_image_bounds")
+                if y_center - height / 2 < 0 or y_center + height / 2 > 1:
+                    errors.append(f"line_{line_number}:box_exceeds_vertical_image_bounds")
     return errors
 
 def infer_split(path: Path, root: Path) -> str:
