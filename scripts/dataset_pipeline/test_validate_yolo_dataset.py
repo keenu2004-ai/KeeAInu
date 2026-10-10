@@ -32,6 +32,17 @@ def test_out_of_range_box_and_class_are_reported(tmp_path: Path):
     assert any("coordinate_out_of_range" in message for message in messages)
     assert any("non_positive_box_size" in message for message in messages)
 
+def test_boxes_extending_beyond_image_edges_are_reported(tmp_path: Path):
+    make_pair(
+        tmp_path, "train", "a",
+        "0 0.05 0.5 0.2 0.2\n1 0.5 0.95 0.2 0.2\n",
+    )
+    report = validate_dataset(tmp_path, class_count=2)
+    messages = [item["error"] for item in report["label_errors"]]
+    assert any("box_exceeds_horizontal_image_bounds" in message for message in messages)
+    assert any("box_exceeds_vertical_image_bounds" in message for message in messages)
+
+
 def test_missing_and_unpaired_labels_are_reported(tmp_path: Path):
     image_dir = tmp_path / "train" / "images"
     image_dir.mkdir(parents=True)
