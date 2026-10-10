@@ -1,0 +1,24 @@
+{
+  "dataset_id": "borescope",
+  "dataset_version": "REPLACE_WITH_EXACT_EXPORT_VERSION",
+  "source_url": "https://universe.roboflow.com/class-ipagk/borescope",
+  "archive_sha256": "REPLACE_WITH_64_CHARACTER_SHA256",
+  "license_id": "REVIEW_EXACT_LICENSE_OR_WRITTEN_PERMISSION",
+  "intended_use": "commercial-training",
+  "license_review_status": "pending_human_review",
+  "attribution": "RECORD_REQUIRED_ATTRIBUTION_OR_REASONED_NOT_REQUIRED",
+  "reviewer": "",
+  "reviewed_at": "",
+  "annotation_review_status": "pending",
+  "class_mapping_review_status": "pending",
+  "split_review_status": "pending",
+  "target_task": "object-detection",
+  "class_names": [
+    "Chipping",
+    "Dirt",
+    "Pitting",
+    "Rusting",
+    "ThermalCracking"
+  ],
+  "notes": "Template only. Keep rights and human review fields pending until actually reviewed. Do not commit real data or credentials."
+}
