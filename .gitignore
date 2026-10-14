@@ -58,6 +58,16 @@ data/db/*.db
 !data/artifacts/.gitkeep
 !data/db/.gitkeep
 
+# Local datasets, annotations, and generated segmentation artifacts.
+# Keep full training photos, copied pilot images, LabelMe annotations (which
+# may embed imageData), proposal masks, overlays, and experiment outputs out of
+# the public repository. Force-add a specific reviewed text report only after
+# checking it for private paths and sensitive metadata.
+data/segmentation/
+data/external_datasets/
+data/training_data/
+data/experiments/
+
 # Large Video Files
 *.mp4
 *.avi
