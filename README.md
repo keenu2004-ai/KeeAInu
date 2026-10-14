@@ -69,5 +69,6 @@ python -m pytest backend/tests -v
 - [Risk Register](docs/RISK_REGISTER.md)
 - [Repository Audit Report](docs/audit/REPOSITORY_AUDIT.md)
 - [Environment Audit Report](docs/audit/ENVIRONMENT_AUDIT.md)
+- [Training Data & Publishing Policy](docs/TRAINING_DATA_AND_PUBLISHING.md)
 - [Optional REA Reverse-Engineering Workflow](docs/integrations/rea.md)
 - [Coding Agent Guidelines](AGENTS.md)
