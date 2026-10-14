@@ -6,6 +6,18 @@ KeeAInu owns its own dataset inventory, normalization, model interface, evaluati
 
 The current repository already has controlled acquisition, license gating, source provenance, quality profiling, and a pluggable inference registry. This milestone adds a local audit utility and a registry of five candidate public datasets/tasks discussed for the first vision baseline.
 
+## Local KeeAInu-training dataset
+
+The currently audited `BorescopeDataset` lives outside this repository, in a sibling folder named `KeeAInu-training`. On the Windows development machine, from the KeeAInu repository root the dataset path is:
+
+```powershell
+..\KeeAInu-training\BorescopeDataset
+```
+
+The audited local snapshot contains 6,054 train images, 110 validation images, and 116 test images. Its labels are YOLO bounding boxes for five source classes; they are not segmentation masks and have not been accepted as verified ground truth. Two planned KeeAInu classes (Welded Droplet and Erosion/Corrosion) should not be synthesized from the source labels. For the detailed historical counts, experiment limitations, storage guidance, and publishing checklist, see [Training Data & Publishing Policy](TRAINING_DATA_AND_PUBLISHING.md).
+
+Keep the source dataset outside public Git by default. The repository's `.gitignore` excludes local `data/segmentation/`, `data/external_datasets/`, `data/training_data/`, and `data/experiments/` outputs, but ignores do not delete existing files and do not protect files already committed. Always inspect Git status and the final staged diff before pushing. Verify source license and redistribution terms before sharing any images or labels.
+
 ## Candidate datasets (verification pending)
 
 See `scripts/dataset_pipeline/sources.json`. The historical image counts and class names are leads from initial discovery, not guarantees about the latest public release. Before use, verify the exact revision, source terms, license, exported annotations and task type. No dataset should be described as approved for commercial training until rights have been reviewed.
