@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     DEFAULT_INFERENCE_ENGINE: str = "mock"
     CONFIDENCE_THRESHOLD: float = 0.50
 
+    # Interim shared-key safeguard; configure via GROUND_TRUTH_API_KEY.
+    GROUND_TRUTH_API_KEY: Optional[str] = None
+
     # Roboflow SAM 3 & Hosted Vision Inference
     ROBOFLOW_API_KEY: Optional[str] = None
     ROBOFLOW_API_URL: str = "https://infer.roboflow.com"

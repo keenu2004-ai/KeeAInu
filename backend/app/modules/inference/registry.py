@@ -7,6 +7,7 @@ from typing import Dict, Optional, List, Any
 from backend.app.modules.inference.base import BaseInferenceEngine
 from backend.app.modules.inference.mock_engine import MockInferenceEngine
 from backend.app.modules.inference.roboflow_client import RoboflowInferenceEngine
+from backend.app.modules.inference.onnx_engine import LocalOnnxInferenceEngine
 
 
 class InferenceEngineRegistry:
@@ -16,8 +17,10 @@ class InferenceEngineRegistry:
         self._engines: Dict[str, BaseInferenceEngine] = {}
         mock = MockInferenceEngine()
         rf = RoboflowInferenceEngine()
+        onnx = LocalOnnxInferenceEngine()
         self.register(mock, aliases=["mock", "deterministicmockengine"])
         self.register(rf, aliases=["roboflow", "sam3"])
+        self.register(onnx, aliases=["onnx_local", "local_onnx", "onnx"])
 
     def register(self, engine: BaseInferenceEngine, aliases: Optional[List[str]] = None) -> None:
         self._engines[engine.engine_name.lower()] = engine
@@ -40,7 +43,8 @@ class InferenceEngineRegistry:
                 "display_name": eng.engine_name,
                 "model_version": eng.model_version,
                 "is_simulated": eng.is_simulated,
-                "auth_configured": getattr(eng, "is_auth_configured", lambda: True)()
+                "auth_configured": getattr(eng, "is_auth_configured", lambda: True)(),
+                "model_present": getattr(eng, "is_model_present", lambda: True)()
             })
         return results
 

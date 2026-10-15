@@ -62,7 +62,7 @@ export const SessionList: React.FC<SessionListProps> = ({
                 ? "badge-in_review"
                 : "badge-draft";
 
-            const mediaCount = session.media?.length || 0;
+            const mediaCount = session.media_count ?? session.media?.length ?? 0;
 
             return (
               <div

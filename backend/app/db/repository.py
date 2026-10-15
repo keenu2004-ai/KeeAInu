@@ -348,6 +348,22 @@ class InspectionRepository:
                 conn.execute("ALTER TABLE findings ADD COLUMN inference_record_id TEXT")
             except sqlite3.OperationalError:
                 pass
+            try:
+                conn.execute("ALTER TABLE media ADD COLUMN review_status TEXT DEFAULT 'UNREVIEWED'")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                conn.execute("ALTER TABLE media ADD COLUMN verified_by TEXT")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                conn.execute("ALTER TABLE media ADD COLUMN verified_at TEXT")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                conn.execute("ALTER TABLE media ADD COLUMN verification_notes TEXT")
+            except sqlite3.OperationalError:
+                pass
 
     # --- Session Operations ---
 
@@ -369,13 +385,26 @@ class InspectionRepository:
             )
         return self.get_session(session_id) # type: ignore
 
+
     def list_sessions(self, skip: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
         with self._get_connection() as conn:
             cursor = conn.execute(
-                "SELECT * FROM sessions ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                """
+                SELECT
+                    s.*,
+                    (
+                        SELECT COUNT(*)
+                        FROM media m
+                        WHERE m.session_id = s.id
+                    ) AS media_count
+                FROM sessions s
+                ORDER BY s.created_at DESC
+                LIMIT ? OFFSET ?
+                """,
                 (limit, skip)
             )
             return [dict(row) for row in cursor.fetchall()]
+
 
     def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
         with self._get_connection() as conn:
@@ -390,20 +419,21 @@ class InspectionRepository:
                 (session_id,)
             )
             session["media"] = [dict(m) for m in media_cursor.fetchall()]
+            session["media_count"] = len(session["media"])
             return session
 
     def update_session_status(self, session_id: str, new_status: str) -> Dict[str, Any]:
         session = self.get_session(session_id)
         if not session:
             raise KeyError(f"Session '{session_id}' not found.")
-            
+
         current_status = session["status"]
         if new_status not in VALID_SESSION_TRANSITIONS.get(current_status, []):
             raise ValueError(
                 f"Invalid session status transition from '{current_status}' to '{new_status}'. "
                 f"Valid next states: {VALID_SESSION_TRANSITIONS.get(current_status, [])}"
             )
-            
+
         now = datetime.now(timezone.utc).isoformat()
         with self._get_connection() as conn:
             conn.execute(
@@ -458,6 +488,31 @@ class InspectionRepository:
             media = dict(row)
             media["is_readable"] = bool(media["is_readable"])
             return media
+
+    def verify_media_defect_free(
+        self,
+        media_id: str,
+        verified_by: str,
+        notes: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Explicitly record inspector verification that a media item is defect-free."""
+        media = self.get_media(media_id)
+        if not media:
+            raise KeyError(f"Media '{media_id}' not found.")
+        now = datetime.now(timezone.utc).isoformat()
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                UPDATE media
+                SET review_status = 'DEFECT_FREE',
+                    verified_by = ?,
+                    verified_at = ?,
+                    verification_notes = ?
+                WHERE id = ?
+                """,
+                (verified_by, now, notes, media_id)
+            )
+        return self.get_media(media_id) # type: ignore
 
     # --- Thumbnails ---
 
@@ -637,6 +692,166 @@ class InspectionRepository:
             )
         return self.get_finding(finding_id) # type: ignore
 
+    def create_manual_finding(
+        self,
+        session_id: str,
+        media_id: str,
+        defect_class: str,
+        bbox_dict: Dict[str, Any],
+        frame_index: int = 0,
+        timestamp_ms: float = 0.0,
+        polygon_mask: Optional[List[List[float]]] = None,
+        severity: str = "MAJOR",
+        inspector_name: str = "Inspector",
+        inspector_notes: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Create a human-verified defect finding directly (ground truth).
+        Explicitly flags is_simulated=False, records inspector provenance,
+        and automatically sets review decision to CONFIRMED.
+        """
+        media = self.get_media(media_id)
+        if not media:
+            raise KeyError(f"Media '{media_id}' not found.")
+        finding_id = f"fnd_man_{uuid.uuid4().hex[:10]}"
+        now = datetime.now(timezone.utc).isoformat()
+        bbox_json = json.dumps(bbox_dict)
+        poly_json = json.dumps(polygon_mask) if polygon_mask is not None else None
+
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO findings (
+                    id, session_id, media_id, frame_index, timestamp_ms, defect_class,
+                    confidence_score, bbox_json, is_simulated, model_name, model_version,
+                    polygon_mask_json, evidence_sha256, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 1.0, ?, 0, 'HUMAN_INSPECTOR', '1.0', ?, ?, ?)
+                """,
+                (
+                    finding_id, session_id, media_id, frame_index, timestamp_ms,
+                    defect_class, bbox_json, poly_json, media.get("sha256_hash"), now
+                )
+            )
+            review_id = f"rev_{finding_id}"
+            conn.execute(
+                """
+                INSERT INTO reviews (
+                    id, finding_id, decision_status, severity, inspector_notes,
+                    adjusted_bbox_json, reviewed_by, reviewed_at
+                ) VALUES (?, ?, 'CONFIRMED', ?, ?, ?, ?, ?)
+                """,
+                (review_id, finding_id, severity, inspector_notes, bbox_json, inspector_name, now)
+            )
+        return self.get_finding(finding_id) # type: ignore
+
+    def get_ground_truth_readiness(self) -> Dict[str, Any]:
+        """
+        Audit actual human-verified ground-truth annotations and defect-free negatives.
+        Determines training baseline readiness and specific annotation requirements.
+        """
+        with self._get_connection() as conn:
+            # 1. Operational findings confirmed by inspectors (excluding unadjusted simulated baseline findings)
+            confirmed_findings_cursor = conn.execute(
+                """
+                SELECT f.defect_class, COUNT(*)
+                FROM findings f
+                JOIN reviews r ON f.id = r.finding_id
+                WHERE r.decision_status IN ('CONFIRMED', 'ADJUSTED')
+                  AND (f.is_simulated = 0 OR r.decision_status = 'ADJUSTED')
+                GROUP BY f.defect_class
+                """
+            )
+            class_counts: Dict[str, int] = {row[0]: row[1] for row in confirmed_findings_cursor.fetchall()}
+
+            # 2. Confirmed candidate findings (excluding simulated findings)
+            cand_cursor = conn.execute(
+                """
+                SELECT candidate_defect, COUNT(*)
+                FROM candidate_findings
+                WHERE review_state = 'CONFIRMED_DEFECT' AND is_simulated = 0
+                GROUP BY candidate_defect
+                """
+            )
+            for row in cand_cursor.fetchall():
+                class_counts[row[0]] = class_counts.get(row[0], 0) + row[1]
+
+            # 3. Decoupled expert annotations (strictly non-synthetic)
+            decoupled_cursor = conn.execute(
+                """
+                SELECT defect_category, COUNT(*)
+                FROM decoupled_annotations
+                WHERE annotator_type IN ('HUMAN_EXPERT', 'EXPERT_AUDITED')
+                  AND is_synthetic = 0
+                  AND bbox_json IS NOT NULL
+                GROUP BY defect_category
+                """
+            )
+            for row in decoupled_cursor.fetchall():
+                class_counts[row[0]] = class_counts.get(row[0], 0) + row[1]
+
+            # 4. Verified defect-free negatives
+            try:
+                neg_media_count = conn.execute(
+                    "SELECT COUNT(*) FROM media WHERE review_status = 'DEFECT_FREE'"
+                ).fetchone()[0]
+            except Exception:
+                neg_media_count = 0
+
+            neg_samples_count = conn.execute(
+                "SELECT COUNT(*) FROM dataset_samples WHERE review_status = 'NO_VISIBLE_DEFECT'"
+            ).fetchone()[0]
+            total_verified_negatives = neg_media_count + neg_samples_count
+
+            # 5. Raw unannotated field footage
+            total_field_assets = conn.execute(
+                "SELECT COUNT(*) FROM dataset_assets WHERE is_synthetic = 0"
+            ).fetchone()[0]
+            unreviewed_samples = conn.execute(
+                "SELECT COUNT(*) FROM dataset_samples WHERE review_status = 'UNREVIEWED'"
+            ).fetchone()[0]
+
+            total_verified_annotations = sum(class_counts.values())
+
+            min_positives_required = 30
+            min_negatives_required = 10
+            is_ready = (total_verified_annotations >= min_positives_required and total_verified_negatives >= min_negatives_required)
+
+            blockers = []
+            if total_verified_annotations < min_positives_required:
+                blockers.append(
+                    f"Insufficient verified positive defect annotations: {total_verified_annotations} "
+                    f"found, minimum {min_positives_required} required for baseline."
+                )
+            if total_verified_negatives < min_negatives_required:
+                blockers.append(
+                    f"Insufficient verified defect-free negative examples: {total_verified_negatives} "
+                    f"found, minimum {min_negatives_required} required for baseline."
+                )
+            if total_field_assets > 0 and total_verified_annotations == 0:
+                blockers.append(
+                    f"{total_field_assets} raw videoscope images in source footage lack human bounding box annotations."
+                )
+
+            return {
+                "total_verified_annotations": total_verified_annotations,
+                "verified_classes_breakdown": class_counts,
+                "total_verified_negatives": total_verified_negatives,
+                "verified_negatives_breakdown": {
+                    "verified_defect_free_media": neg_media_count,
+                    "verified_defect_free_samples": neg_samples_count
+                },
+                "total_field_assets": total_field_assets,
+                "unreviewed_samples_count": unreviewed_samples,
+                "is_training_ready": is_ready,
+                "blockers": blockers,
+                "next_action": (
+                    "Ready to train baseline model via scripts/train_defect_detector.py"
+                    if is_ready
+                    else "Inspector must review and annotate representative footage frames with defect bounding boxes and verify defect-free frames."
+                ),
+                "generated_at": datetime.now(timezone.utc).isoformat()
+            }
+
     # --- Discovery & Dataset Profiling Operations (Phase 4A) ---
 
     def upsert_asset(
@@ -662,7 +877,7 @@ class InspectionRepository:
     ) -> Dict[str, Any]:
         now = datetime.now(timezone.utc).isoformat()
         q_json = json.dumps(quality_profile_dict) if quality_profile_dict else None
-        
+
         with self._get_connection() as conn:
             cursor = conn.execute("SELECT id FROM dataset_assets WHERE id = ?", (asset_id,))
             existing = cursor.fetchone()
@@ -1677,6 +1892,3 @@ class InspectionRepository:
 
 
 repo = InspectionRepository()
-
-
-

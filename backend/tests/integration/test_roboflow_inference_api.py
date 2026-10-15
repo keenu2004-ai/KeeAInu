@@ -163,3 +163,24 @@ def test_analyze_frame_roboflow_end_to_end(test_session_and_image):
             assert rec["id"] == data["inference_record_id"]
             assert rec["engine_name"] == "roboflow"
             assert rec["evidence_sha256"] == data["evidence_sha256"]
+
+
+def test_analyze_frame_roboflow_auth_error_when_key_missing(test_session_and_image):
+    """Verify Roboflow returns HTTP 401 with clear diagnostic when API key is missing."""
+    session, media = test_session_and_image
+
+    with patch.object(settings, "ROBOFLOW_API_KEY", None):
+        resp = client.post(
+            "/api/v1/inference/analyze-frame",
+            json={
+                "session_id": session["id"],
+                "media_id": media["id"],
+                "frame_index": 0,
+                "confidence_threshold": 0.5,
+                "engine": "roboflow",
+                "allow_cloud_inference": True,
+                "use_cache": False
+            }
+        )
+        assert resp.status_code == 401
+        assert "Roboflow API key is not configured" in resp.json()["detail"]

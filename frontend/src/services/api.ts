@@ -478,5 +478,72 @@ export async function fetchFindingDecisionHistory(findingId: string): Promise<an
   return res.json();
 }
 
+// --- Ground-Truth & Dataset Export API ---
 
+export async function createManualFinding(
+  mediaId: string,
+  data: {
+    defect_class: string;
+    bbox: BoundingBox;
+    confidence?: number;
+    frame_index?: number;
+    timestamp_ms?: number;
+    notes?: string;
+    inspector_name?: string;
+  }
+): Promise<Finding> {
+  const res = await fetch(`${API_BASE}/media/${mediaId}/findings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to create manual finding.");
+  }
+  return res.json();
+}
 
+export async function verifyMediaDefectFree(
+  mediaId: string,
+  data: {
+    inspector_name: string;
+    notes?: string;
+  }
+): Promise<{ status: string; media_id: string; is_verified_defect_free: boolean; verified_by: string }> {
+  const res = await fetch(`${API_BASE}/media/${mediaId}/verify-defect-free`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to certify media defect-free.");
+  }
+  return res.json();
+}
+
+export async function exportDataset(data?: {
+  version?: string;
+  include_negatives?: boolean;
+  include_synthetic?: boolean;
+  overwrite?: boolean;
+  target_classes?: string[];
+}): Promise<any> {
+  const res = await fetch(`${API_BASE}/evaluation/datasets/export`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data || {}),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Dataset export failed.");
+  }
+  return res.json();
+}
+
+export async function getGroundTruthReadiness(): Promise<any> {
+  const res = await fetch(`${API_BASE}/evaluation/readiness`);
+  if (!res.ok) throw new Error("Failed to fetch ground truth readiness.");
+  return res.json();
+}
