@@ -49,12 +49,14 @@ out/
 data/media/raw/*
 data/media/derived/*
 data/source_footage/*
+data/datasets/*
 data/artifacts/*
 data/db/*.sqlite
 data/db/*.db
 !data/media/raw/.gitkeep
 !data/media/derived/.gitkeep
 !data/source_footage/.gitkeep
+!data/datasets/.gitkeep
 !data/artifacts/.gitkeep
 !data/db/.gitkeep
 
@@ -88,3 +90,12 @@ data/experiments/
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+# Local training environment and generated experiment outputs
+.venv-training/
+runs/
+data/segmentation/
+data/external_datasets/
+data/training_data/
+data/experiments/
+data/pilot_contact_sheet.jpg

@@ -67,6 +67,9 @@ export interface MediaItem {
   fps: number;
   total_frames: number;
   is_readable: boolean;
+  is_verified_defect_free?: boolean;
+  verified_defect_free_by?: string;
+  verified_defect_free_at?: string;
   created_at: string;
 }
 
@@ -89,4 +92,5 @@ export interface InspectionSession {
   created_at: string;
   updated_at: string;
   media?: MediaItem[];
+  media_count?: number;
 }

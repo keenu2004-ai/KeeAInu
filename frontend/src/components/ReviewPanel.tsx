@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { CheckCircle2, XCircle, Edit3, ShieldAlert, UserCheck, AlertTriangle } from "lucide-react";
-import { Finding } from "../types/inspection";
+import { Finding, MediaItem } from "../types/inspection";
 import { submitReviewDecision } from "../services/api";
 
 interface ReviewPanelProps {
@@ -9,6 +9,7 @@ interface ReviewPanelProps {
   onSelectFinding: (findingId: string) => void;
   onReviewSubmitted: (updatedFinding: Finding) => void;
   inspectorName: string;
+  mediaList?: MediaItem[];
 }
 
 export const ReviewPanel: React.FC<ReviewPanelProps> = ({
@@ -17,6 +18,7 @@ export const ReviewPanel: React.FC<ReviewPanelProps> = ({
   onSelectFinding,
   onReviewSubmitted,
   inspectorName,
+  mediaList,
 }) => {
   const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
   const [selectedSeverity, setSelectedSeverity] = useState<Record<string, "CRITICAL" | "MAJOR" | "MINOR" | "INFORMATIONAL">>({});
@@ -103,6 +105,11 @@ export const ReviewPanel: React.FC<ReviewPanelProps> = ({
                 </div>
 
                 <div className="finding-info-row">
+                  {mediaList && mediaList.length > 1 && (
+                    <span style={{ color: "#38bdf8", fontWeight: 600 }}>
+                      File: {mediaList.find((m) => m.id === finding.media_id)?.filename || finding.media_id.substring(0, 8)}
+                    </span>
+                  )}
                   <span>Frame: {finding.frame_index}</span>
                   <span>Confidence: {(finding.confidence_score * 100).toFixed(0)}%</span>
                   <span>TS: {(finding.timestamp_ms / 1000).toFixed(2)}s</span>

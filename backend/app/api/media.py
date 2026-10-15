@@ -2,13 +2,15 @@
 
 import hashlib
 import uuid
+from typing import List, Optional, Dict, Any
 from pathlib import Path
 import cv2
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse, Response
 from PIL import Image
 
 from backend.app.core.config import settings
+from backend.app.core.access_control import require_ground_truth_api_key
 from backend.app.core.security import calculate_sha256, is_path_safe, verify_and_resolve_media_file
 from backend.app.db.repository import repo
 from backend.app.modules.ingestion.validator import (
@@ -199,7 +201,10 @@ async def get_media_content(media_id: str):
     if not media:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Media '{media_id}' not found.")
 
-    file_path = verify_and_resolve_media_file(media, settings.RAW_MEDIA_DIR)
+    file_path = verify_and_resolve_media_file(
+                    media,
+                    [settings.RAW_MEDIA_DIR, settings.SOURCE_FOOTAGE_DIR]
+    )
 
     return FileResponse(
         path=file_path,
@@ -271,5 +276,94 @@ async def get_extracted_frame(media_id: str, frame_index: int):
             )
     except IndexError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+# --- Ground-Truth Inspector Annotation & Defect-Free Verification ---
+
+from backend.app.schemas.annotation import NormalizedBoundingBox
+from pydantic import BaseModel, Field
+
+
+class CreateMediaFindingRequest(BaseModel):
+    """Payload for direct human ground-truth defect annotation on media."""
+    defect_class: str = Field(..., min_length=1, description="Defect classification (e.g. CRACK, CORROSION)")
+    bbox: NormalizedBoundingBox
+    polygon_mask: Optional[List[List[float]]] = None
+    frame_index: int = Field(0, ge=0)
+    timestamp_ms: float = Field(0.0, ge=0.0)
+    severity: str = Field("MAJOR", description="CRITICAL, MAJOR, MINOR, or INFORMATIONAL")
+    inspector_name: str = Field(..., min_length=1, description="Authorized inspector identifier")
+    inspector_notes: Optional[str] = None
+
+
+class VerifyMediaDefectFreeRequest(BaseModel):
+    """Payload to explicitly verify media as a defect-free negative example."""
+    verified_by: str = Field(..., min_length=1, description="Inspector verifying defect-free status")
+    notes: Optional[str] = None
+
+
+CreateMediaFindingRequest.model_rebuild()
+VerifyMediaDefectFreeRequest.model_rebuild()
+
+
+@router.post("/{media_id}/findings", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_ground_truth_api_key)])
+async def annotate_media_finding(media_id: str, req: CreateMediaFindingRequest):
+    """
+    Directly create an inspector ground-truth defect finding on a media frame.
+    Explicitly flags is_simulated=False, records inspector provenance,
+    and sets human review state to CONFIRMED.
+    """
+    media = repo.get_media(media_id)
+    if not media:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Media '{media_id}' not found.")
+
+    if not media["media_type"].startswith("video/") and req.frame_index != 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Still image media only supports frame index 0.")
+
+    if media["media_type"].startswith("video/") and req.frame_index >= media["total_frames"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Frame index {req.frame_index} exceeds total frames {media['total_frames']}."
+        )
+
+    try:
+        created = repo.create_manual_finding(
+            session_id=media["session_id"],
+            media_id=media_id,
+            defect_class=req.defect_class.strip().upper(),
+            bbox_dict=req.bbox.model_dump(),
+            frame_index=req.frame_index,
+            timestamp_ms=req.timestamp_ms,
+            polygon_mask=req.polygon_mask,
+            severity=req.severity.strip().upper(),
+            inspector_name=req.inspector_name.strip(),
+            inspector_notes=req.inspector_notes
+        )
+        return created
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@router.post("/{media_id}/verify-defect-free", status_code=status.HTTP_200_OK, dependencies=[Depends(require_ground_truth_api_key)])
+async def verify_media_defect_free(media_id: str, req: VerifyMediaDefectFreeRequest):
+    """
+    Explicitly verify an inspection media file as a verified defect-free negative example.
+    Unannotated files are never assumed negative unless explicitly confirmed here.
+    """
+    media = repo.get_media(media_id)
+    if not media:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Media '{media_id}' not found.")
+
+    try:
+        updated = repo.verify_media_defect_free(
+            media_id=media_id,
+            verified_by=req.verified_by.strip(),
+            notes=req.notes
+        )
+        return updated
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))

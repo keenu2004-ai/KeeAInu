@@ -7,7 +7,10 @@ import {
   Sparkles,
   Upload,
   Layers,
-  Video as VideoIcon
+  Video as VideoIcon,
+  ShieldCheck,
+  PlusCircle,
+  CheckCircle2
 } from "lucide-react";
 import {
   InspectionSession,
@@ -21,6 +24,8 @@ import {
   analyzeFrame,
   getMediaContentUrl,
   updateSessionStatus,
+  createManualFinding,
+  verifyMediaDefectFree
 } from "../services/api";
 import { CanvasOverlay } from "./CanvasOverlay";
 import { TimelineScrubber } from "./TimelineScrubber";
@@ -42,13 +47,19 @@ export const InspectionWorkspace: React.FC<InspectionWorkspaceProps> = ({
   const [thumbnails, setThumbnails] = useState<ThumbnailItem[]>([]);
   const [findings, setFindings] = useState<Finding[]>([]);
   const [activeFindingId, setActiveFindingId] = useState<string | null>(null);
-  const [selectedEngine, setSelectedEngine] = useState<string>("roboflow");
+  const [selectedEngine, setSelectedEngine] = useState<string>("mock");
   const [allowCloudInference, setAllowCloudInference] = useState<boolean>(true);
   const [customPrompts, setCustomPrompts] = useState<string>("defect, crack, pitting, corrosion");
   const [confidenceThreshold, setConfidenceThreshold] = useState<number>(0.5);
   const [useCache, setUseCache] = useState<boolean>(true);
   const [analyzing, setAnalyzing] = useState<boolean>(false);
   const [isUploadOpen, setIsUploadOpen] = useState<boolean>(false);
+  const [isManualModalOpen, setIsManualModalOpen] = useState<boolean>(false);
+  const [manualDefectClass, setManualDefectClass] = useState<string>("CRACK");
+  const [manualBbox, setManualBbox] = useState({ x_min: 0.2, y_min: 0.2, x_max: 0.6, y_max: 0.6 });
+  const [manualNotes, setManualNotes] = useState<string>("");
+  const [savingManual, setSavingManual] = useState<boolean>(false);
+  const [certifyingDefectFree, setCertifyingDefectFree] = useState<boolean>(false);
   const [lastInferenceMeta, setLastInferenceMeta] = useState<{
     engine_name?: string;
     model_version?: string;
@@ -171,12 +182,88 @@ export const InspectionWorkspace: React.FC<InspectionWorkspaceProps> = ({
     );
   };
 
+  const handleSelectFinding = (findingId: string) => {
+    setActiveFindingId(findingId);
+    const target = findings.find((f) => f.id === findingId);
+    if (!target) return;
+
+    // Switch media item if finding belongs to another media
+    if (session.media && target.media_id && target.media_id !== activeMedia?.id) {
+      const mediaIdx = session.media.findIndex((m) => m.id === target.media_id);
+      if (mediaIdx !== -1) {
+        setActiveMediaIndex(mediaIdx);
+      }
+    }
+
+    // Seek to finding frame
+    if (target.frame_index !== undefined && target.frame_index >= 0) {
+      handleSeekFrame(target.frame_index);
+    }
+  };
+
   const handleStatusChange = async (newStatus: string) => {
+    if (!newStatus || newStatus === session.status) return;
     try {
       const updated = await updateSessionStatus(session.id, newStatus);
       onSessionUpdated(updated);
     } catch (err: any) {
-      alert(err.message);
+      alert(`Status transition failed: ${err.message}`);
+    }
+  };
+
+  const handleCertifyDefectFree = async () => {
+    if (!activeMedia) return;
+    const confirmCert = window.confirm(
+      `Explicitly certify "${activeMedia.filename}" as Defect-Free Negative Ground Truth?\n\nThis records immutable SHA-256 evidence under inspector: ${session.inspector_name}.`
+    );
+    if (!confirmCert) return;
+
+    try {
+      setCertifyingDefectFree(true);
+      await verifyMediaDefectFree(activeMedia.id, {
+        inspector_name: session.inspector_name,
+        notes: "Human inspector verified zero defects on this media asset."
+      });
+      const updatedMediaList = (session.media || []).map((m) =>
+        m.id === activeMedia.id
+          ? {
+              ...m,
+              is_verified_defect_free: true,
+              verified_defect_free_by: session.inspector_name,
+              verified_defect_free_at: new Date().toISOString()
+            }
+          : m
+      );
+      onSessionUpdated({ ...session, media: updatedMediaList });
+      alert(`Media "${activeMedia.filename}" successfully certified defect-free.`);
+    } catch (err: any) {
+      alert(`Defect-free certification failed: ${err.message}`);
+    } finally {
+      setCertifyingDefectFree(false);
+    }
+  };
+
+  const handleSaveManualFinding = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeMedia) return;
+    try {
+      setSavingManual(true);
+      const newFinding = await createManualFinding(activeMedia.id, {
+        defect_class: manualDefectClass,
+        bbox: manualBbox,
+        frame_index: currentFrame,
+        timestamp_ms: activeMedia.fps > 0 ? (currentFrame / activeMedia.fps) * 1000 : 0,
+        inspector_name: session.inspector_name,
+        notes: manualNotes || "Human expert annotated defect.",
+      });
+      setFindings((prev) => [...prev, newFinding]);
+      setActiveFindingId(newFinding.id);
+      setIsManualModalOpen(false);
+      setManualNotes("");
+    } catch (err: any) {
+      alert(`Manual annotation failed: ${err.message}`);
+    } finally {
+      setSavingManual(false);
     }
   };
 
@@ -189,8 +276,27 @@ export const InspectionWorkspace: React.FC<InspectionWorkspaceProps> = ({
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             <VideoIcon size={20} color="#06b6d4" />
             <div>
-              <div style={{ fontSize: "0.95rem", fontWeight: "700" }}>
-                {activeMedia ? activeMedia.filename : "No Media Uploaded"}
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <span style={{ fontSize: "0.95rem", fontWeight: "700" }}>
+                  {activeMedia ? activeMedia.filename : "No Media Uploaded"}
+                </span>
+                {activeMedia?.is_verified_defect_free && (
+                  <span style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "4px",
+                    background: "rgba(16, 185, 129, 0.15)",
+                    color: "#10b981",
+                    border: "1px solid rgba(16, 185, 129, 0.4)",
+                    borderRadius: "6px",
+                    padding: "2px 8px",
+                    fontSize: "0.75rem",
+                    fontWeight: 700
+                  }}>
+                    <CheckCircle2 size={13} />
+                    VERIFIED NEGATIVE
+                  </span>
+                )}
               </div>
               {activeMedia && (
                 <div style={{ fontSize: "0.75rem", color: "#94a3b8", display: "flex", gap: "12px", fontFamily: "var(--font-mono)" }}>
@@ -207,12 +313,51 @@ export const InspectionWorkspace: React.FC<InspectionWorkspaceProps> = ({
               className="form-select"
               style={{ fontSize: "0.8rem", padding: "4px 10px" }}
               value={session.status}
+              disabled={session.status === "ARCHIVED"}
               onChange={(e) => handleStatusChange(e.target.value)}
             >
-              <option value="DRAFT">DRAFT</option>
-              <option value="IN_REVIEW">IN_REVIEW</option>
-              <option value="COMPLETED">COMPLETED</option>
+              <option value={session.status}>{session.status} (Current)</option>
+              {session.status === "DRAFT" && (
+                <>
+                  <option value="IN_REVIEW">Move to IN_REVIEW</option>
+                  <option value="ARCHIVED">Archive Session</option>
+                </>
+              )}
+              {session.status === "IN_REVIEW" && (
+                <>
+                  <option value="DRAFT">Return to DRAFT</option>
+                  <option value="COMPLETED">Complete Inspection</option>
+                  <option value="ARCHIVED">Archive Session</option>
+                </>
+              )}
+              {session.status === "COMPLETED" && (
+                <option value="ARCHIVED">Archive Inspection</option>
+              )}
             </select>
+
+            <button
+              className="btn btn-secondary btn-sm"
+              style={{
+                borderColor: activeMedia?.is_verified_defect_free ? "#10b981" : "var(--border-subtle)",
+                color: activeMedia?.is_verified_defect_free ? "#10b981" : undefined
+              }}
+              onClick={handleCertifyDefectFree}
+              disabled={certifyingDefectFree || !activeMedia}
+              title="Certify active image/video as verified defect-free negative ground truth"
+            >
+              <ShieldCheck size={14} color={activeMedia?.is_verified_defect_free ? "#10b981" : undefined} />
+              {certifyingDefectFree ? "Certifying..." : activeMedia?.is_verified_defect_free ? "Certified Defect-Free" : "Certify Defect-Free"}
+            </button>
+
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => setIsManualModalOpen(true)}
+              disabled={!activeMedia}
+              title="Add genuine human ground-truth defect finding"
+            >
+              <PlusCircle size={14} color="#06b6d4" />
+              Add Human Defect
+            </button>
 
             <button className="btn btn-secondary btn-sm" onClick={() => setIsUploadOpen(true)}>
               <Upload size={14} />
@@ -259,9 +404,11 @@ export const InspectionWorkspace: React.FC<InspectionWorkspaceProps> = ({
                     findings={findings}
                     currentFrameIndex={currentFrame}
                     activeFindingId={activeFindingId}
-                    onSelectFinding={setActiveFindingId}
+                    onSelectFinding={handleSelectFinding}
                     width={displaySize.width}
                     height={displaySize.height}
+                    activeMediaId={activeMedia.id}
+                    isStillImage={false}
                   />
                 </>
               ) : (
@@ -279,9 +426,11 @@ export const InspectionWorkspace: React.FC<InspectionWorkspaceProps> = ({
                     findings={findings}
                     currentFrameIndex={0}
                     activeFindingId={activeFindingId}
-                    onSelectFinding={setActiveFindingId}
+                    onSelectFinding={handleSelectFinding}
                     width={displaySize.width}
                     height={displaySize.height}
+                    activeMediaId={activeMedia.id}
+                    isStillImage={true}
                   />
                 </>
               )
@@ -337,8 +486,9 @@ export const InspectionWorkspace: React.FC<InspectionWorkspaceProps> = ({
                     value={selectedEngine}
                     onChange={(e) => setSelectedEngine(e.target.value)}
                   >
-                    <option value="roboflow">Roboflow SAM 3 (Segmentation)</option>
                     <option value="mock">Mock Baseline (Simulated)</option>
+                    <option value="onnx_local">Local ONNX (In-House Offline)</option>
+                    <option value="roboflow">Roboflow SAM 3 (Cloud API Key Required)</option>
                   </select>
 
                   <input
@@ -442,9 +592,10 @@ export const InspectionWorkspace: React.FC<InspectionWorkspaceProps> = ({
       <ReviewPanel
         findings={findings}
         activeFindingId={activeFindingId}
-        onSelectFinding={setActiveFindingId}
+        onSelectFinding={handleSelectFinding}
         onReviewSubmitted={handleReviewSubmitted}
         inspectorName={session.inspector_name}
+        mediaList={session.media}
       />
 
       <MediaUploadModal
@@ -453,10 +604,148 @@ export const InspectionWorkspace: React.FC<InspectionWorkspaceProps> = ({
         onClose={() => setIsUploadOpen(false)}
         onMediaUploaded={(newMedia) => {
           const updatedMediaList = [...(session.media || []), newMedia];
-          onSessionUpdated({ ...session, media: updatedMediaList });
+          onSessionUpdated({ ...session, media: updatedMediaList, media_count: updatedMediaList.length });
           setActiveMediaIndex(updatedMediaList.length - 1);
         }}
       />
+
+      {/* Human Ground-Truth Defect Annotation Modal */}
+      {isManualModalOpen && activeMedia && (
+        <div className="modal-backdrop">
+          <div className="modal-card" style={{ maxWidth: "500px", width: "100%" }}>
+            <div className="modal-header">
+              <h3 style={{ fontSize: "1.1rem", fontWeight: 700, display: "flex", alignItems: "center", gap: "8px" }}>
+                <PlusCircle size={18} color="#06b6d4" />
+                Add Human Verified Defect
+              </h3>
+              <button
+                className="btn-icon"
+                onClick={() => setIsManualModalOpen(false)}
+                style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", fontSize: "1.2rem" }}
+              >
+                &times;
+              </button>
+            </div>
+            <form onSubmit={handleSaveManualFinding} style={{ padding: "16px 20px" }}>
+              <div style={{ marginBottom: "14px" }}>
+                <label style={{ display: "block", fontSize: "0.8rem", color: "#94a3b8", marginBottom: "6px" }}>
+                  Defect Category (Taxonomy)
+                </label>
+                <select
+                  className="form-select"
+                  value={manualDefectClass}
+                  onChange={(e) => setManualDefectClass(e.target.value)}
+                  style={{ width: "100%" }}
+                  required
+                >
+                  <option value="CRACK">CRACK (Structural / Fatigue Crack)</option>
+                  <option value="THERMAL_CRACKING">THERMAL_CRACKING (Thermal Fatigue Crazing)</option>
+                  <option value="CHIPPING">CHIPPING (Coating / Edge Flake)</option>
+                  <option value="CORROSION">CORROSION (Oxidation / Chemical Attack)</option>
+                  <option value="RUSTING">RUSTING (Surface Ferrous Rust)</option>
+                  <option value="PITTING">PITTING (Cavity / Localized Pit)</option>
+                  <option value="DIRT">DIRT (Surface Particulate / Soot)</option>
+                  <option value="SCORING_SCRATCH">SCORING_SCRATCH (Mechanical Abrasive Gouge)</option>
+                  <option value="DEPOSIT_FOULING">DEPOSIT_FOULING (Caked Deposit)</option>
+                  <option value="FOREIGN_OBJECT_DAMAGE">FOREIGN_OBJECT_DAMAGE (Impact / Dent)</option>
+                  <option value="SURFACE_SPALLING">SURFACE_SPALLING (Spall)</option>
+                  <option value="OTHER_DEFECT">OTHER_DEFECT (Non-standard Defect)</option>
+                </select>
+              </div>
+
+              <div style={{ marginBottom: "14px" }}>
+                <label style={{ display: "block", fontSize: "0.8rem", color: "#94a3b8", marginBottom: "6px" }}>
+                  Normalized Bounding Box [x_min, y_min, x_max, y_max] (0.0 to 1.0)
+                </label>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+                  <div>
+                    <span style={{ fontSize: "0.7rem", color: "#64748b" }}>x_min:</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0.0"
+                      max="0.99"
+                      className="form-input"
+                      value={manualBbox.x_min}
+                      onChange={(e) => setManualBbox({ ...manualBbox, x_min: parseFloat(e.target.value) || 0 })}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <span style={{ fontSize: "0.7rem", color: "#64748b" }}>y_min:</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0.0"
+                      max="0.99"
+                      className="form-input"
+                      value={manualBbox.y_min}
+                      onChange={(e) => setManualBbox({ ...manualBbox, y_min: parseFloat(e.target.value) || 0 })}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <span style={{ fontSize: "0.7rem", color: "#64748b" }}>x_max:</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      max="1.0"
+                      className="form-input"
+                      value={manualBbox.x_max}
+                      onChange={(e) => setManualBbox({ ...manualBbox, x_max: parseFloat(e.target.value) || 1 })}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <span style={{ fontSize: "0.7rem", color: "#64748b" }}>y_max:</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      max="1.0"
+                      className="form-input"
+                      value={manualBbox.y_max}
+                      onChange={(e) => setManualBbox({ ...manualBbox, y_max: parseFloat(e.target.value) || 1 })}
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: "16px" }}>
+                <label style={{ display: "block", fontSize: "0.8rem", color: "#94a3b8", marginBottom: "6px" }}>
+                  Inspector Notes / Verification Rationale
+                </label>
+                <textarea
+                  className="form-input"
+                  style={{ width: "100%", height: "60px", resize: "none" }}
+                  placeholder="Inspector observations, defect extent..."
+                  value={manualNotes}
+                  onChange={(e) => setManualNotes(e.target.value)}
+                />
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setIsManualModalOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary btn-sm"
+                  disabled={savingManual}
+                >
+                  {savingManual ? "Saving..." : "Save Verified Finding"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -45,7 +45,7 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
         <div className="thumbnail-strip">
           {thumbnails.map((thumb) => {
             const isActive = Math.abs(thumb.frame_index - currentFrame) <= (totalFrames / thumbnails.length);
-            const hasFinding = findings.some((f) => f.frame_index === thumb.frame_index);
+            const hasFinding = findings.some((f) => f.media_id === mediaId && f.frame_index === thumb.frame_index);
 
             return (
               <div

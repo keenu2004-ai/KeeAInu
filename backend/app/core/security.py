@@ -11,19 +11,19 @@ def calculate_sha256(file_path_or_bytes: Union[str, Path, bytes]) -> str:
     Accepts a filepath (reads in chunks) or raw bytes.
     """
     hasher = hashlib.sha256()
-    
+
     if isinstance(file_path_or_bytes, bytes):
         hasher.update(file_path_or_bytes)
         return hasher.hexdigest()
-    
+
     path = Path(file_path_or_bytes)
     if not path.exists():
         raise FileNotFoundError(f"File not found for hash calculation: {path}")
-        
+
     with open(path, "rb") as f:
         while chunk := f.read(65536):
             hasher.update(chunk)
-            
+
     return hasher.hexdigest()
 
 
@@ -40,20 +40,14 @@ def is_path_safe(target_path: Union[str, Path], base_directory: Union[str, Path]
         return False
 
 
+
 def verify_and_resolve_media_file(
     media_record: dict,
-    storage_root: Union[str, Path]
+    storage_root: Union[str, Path, list[Union[str, Path]]]
 ) -> Path:
     """
-    Verify and resolve a registered media record against its expected storage root
-    and cryptographic SHA-256 digest before consumption.
-
-    Raises:
-        HTTPException(404): If the file is missing from vault or path is outside storage_root.
-        HTTPException(409): If calculated SHA-256 does not match media_record["sha256_hash"].
-
-    Returns:
-        Path: The resolved, verified file path.
+    Verify a registered media file against approved storage roots and its
+    registered SHA-256 digest before consumption.
     """
     from fastapi import HTTPException, status
 
@@ -65,7 +59,11 @@ def verify_and_resolve_media_file(
         )
 
     file_path = Path(raw_path_str).resolve()
-    if not file_path.exists() or not is_path_safe(file_path, storage_root):
+
+    roots = storage_root if isinstance(storage_root, list) else [storage_root]
+    path_is_safe = any(is_path_safe(file_path, root) for root in roots)
+
+    if not file_path.is_file() or not path_is_safe:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Stored media file missing from vault."
@@ -79,11 +77,10 @@ def verify_and_resolve_media_file(
         )
 
     actual_hash = calculate_sha256(file_path)
-    if actual_hash != expected_hash:
+    if actual_hash.lower() != expected_hash.lower():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Evidence integrity failure: file hash does not match registered evidence digest."
         )
 
     return file_path
-

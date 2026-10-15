@@ -73,7 +73,10 @@ async def analyze_frame(req: AnalyzeFrameRequest):
             detail=f"Integrity error: Media '{req.media_id}' does not belong to session '{req.session_id}'."
         )
 
-    file_path = verify_and_resolve_media_file(media, settings.RAW_MEDIA_DIR)
+    file_path = verify_and_resolve_media_file(
+        media,
+        [settings.RAW_MEDIA_DIR, settings.SOURCE_FOOTAGE_DIR]
+    )
 
     frame_bytes = b""
     timestamp_ms = 0.0
